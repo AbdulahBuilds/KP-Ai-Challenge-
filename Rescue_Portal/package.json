@@ -1,0 +1,29 @@
+{
+  "name": "rescue-portal",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Rescue Portal - centralized emergency healthcare coordination (Rescue side)",
+  "workspaces": [
+    "apps/api",
+    "apps/web"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,web -c cyan,green \"npm run dev -w @rescue/api\" \"npm run dev -w @rescue/web\"",
+    "build": "npm run build -w @rescue/api && npm run build -w @rescue/web",
+    "test": "npm run test -w @rescue/api && npm run test -w @rescue/web",
+    "test:api": "npm run test -w @rescue/api",
+    "test:web": "npm run test -w @rescue/web",
+    "lint": "npm run lint -w @rescue/api && npm run lint -w @rescue/web",
+    "typecheck": "npm run typecheck -w @rescue/api && npm run typecheck -w @rescue/web",
+    "prisma:generate": "npm run prisma:generate -w @rescue/api",
+    "db:migrate": "npm run prisma:migrate -w @rescue/api",
+    "db:seed": "npm run prisma:seed -w @rescue/api",
+    "db:studio": "npm run prisma:studio -w @rescue/api"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -31,7 +31,7 @@ async function bootstrap(): Promise<void> {
     next();
   });
 
-  const allowedOrigins = (config.get<string>('CORS_ORIGINS', 'http://localhost:3000') ?? '')
+  const allowedOrigins = (config.get<string>('CORS_ORIGINS', 'http://localhost:3000,http://localhost:3001') ?? '')
     .split(',')
     .map((origin) => origin.trim())
     .filter(Boolean);

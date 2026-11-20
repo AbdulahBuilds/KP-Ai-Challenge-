@@ -1,0 +1,20 @@
+{
+  "name": "kp-ai-challenge-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "KP AI Challenge: Intelligent Healthcare Coordination Platform Monorepo",
+  "scripts": {
+    "dev": "npm run dev:hospital",
+    "dev:hospital": "npm --prefix Hospital_Portal run dev",
+    "dev:rescue": "npm --prefix Rescue_Portal run dev",
+    "dev:rescue:api": "npm --prefix Rescue_Portal run dev -w @rescue/api",
+    "dev:rescue:web": "npm --prefix Rescue_Portal run dev -w @rescue/web",
+    "dev:all": "concurrently -n \"HOSPITAL,RESCUE-API,RESCUE-WEB\" -c \"blue.bold,cyan.bold,green.bold\" \"npm --prefix Hospital_Portal run dev\" \"npm --prefix Rescue_Portal run dev -w @rescue/api\" \"npm --prefix Rescue_Portal run dev -w @rescue/web\"",
+    "build:hospital": "npm --prefix Hospital_Portal run build",
+    "build:rescue": "npm --prefix Rescue_Portal run build",
+    "build:all": "npm run build:hospital && npm run build:rescue"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

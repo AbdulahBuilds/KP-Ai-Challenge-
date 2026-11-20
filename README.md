@@ -38,9 +38,30 @@ This monorepo consolidates all three provincial portals under clear, self-contai
 
 ---
 
-## 🚀 Quick Start Guide
+## 🚀 Quick Start Guide (Root Commands)
 
-### 1. Hospital Portal
+You can run any portal or all portals together directly from the root folder without switching directories:
+
+```bash
+# 🏥 1. Run Hospital Portal only (Port 3000)
+npm run dev:hospital
+
+# 🚑 2. Run Rescue 1122 Portal only (API on 4000 + Web on 3001)
+npm run dev:rescue
+
+# ⚡ 3. Run Both Portals Concurrently Side-by-Side
+npm run dev:all
+```
+
+| Service | Local URL | Description |
+|---|---|---|
+| **Hospital Portal** | [http://localhost:3000](http://localhost:3000) | Bed tracking, AI referral triage & Trauma bay alerts |
+| **Rescue Web** | [http://localhost:3001](http://localhost:3001) | Rescue 1122 dispatcher & ambulance CAD dashboard |
+| **Rescue API** | [http://localhost:4000/api/v1](http://localhost:4000/api/v1) | Backend API & Swagger docs at `/api/docs` |
+
+---
+
+### Running Portals Individually
 The central hospital facility management, AI triage matching, and Rescue 1122 emergency intake hub.
 
 ```bash

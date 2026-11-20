@@ -25,7 +25,7 @@ module.exports = {
           accent: '#164E78',       // Hospital Portal Accent
         },
         surface: {
-          main: '#F8FAFC',         // Main Background (Slate 50)
+          main: '#FFFFFF',         // Main Background (Unified Clean White matching Sidebar)
           subtle: '#EAF4FA',       // Secondary Background
           card: '#FFFFFF',         // Card Background
           border: '#E2E8F0',       // Subtle Borders (Slate 200)

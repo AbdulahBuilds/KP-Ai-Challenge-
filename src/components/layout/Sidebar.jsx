@@ -113,7 +113,7 @@ export default function Sidebar({
       >
         <div className="flex-1 overflow-y-auto">
           {/* Top Brand Header */}
-          <div className="h-16 px-4 border-b border-surface-border flex items-center justify-between bg-slate-50/50">
+          <div className="h-16 px-4 border-b border-surface-border flex items-center justify-between bg-white">
             <div className="flex items-center space-x-3">
               <div className="w-9 h-9 rounded-lg bg-brand-primary text-white flex items-center justify-center font-bold shadow-xs">
                 <Hospital className="w-5 h-5 text-teal-300" />
@@ -174,14 +174,14 @@ export default function Sidebar({
         </div>
 
         {/* Bottom Section: Telemetry status & Logout */}
-        <div className="p-3.5 border-t border-surface-border bg-slate-50/50 space-y-2">
+        <div className="p-3.5 border-t border-surface-border bg-white space-y-2">
           {/* Telemetry live status */}
           <div className="px-2 py-1 flex items-center justify-between text-[11px] text-slate-500 font-medium">
             <span className="flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
               <span>AI Triage Active</span>
             </span>
-            <span className="text-[10px] bg-slate-200/70 text-slate-700 font-mono px-1.5 py-0.5 rounded font-semibold">
+            <span className="text-[10px] bg-white border border-slate-200 text-slate-700 font-mono px-1.5 py-0.5 rounded font-semibold">
               v1.0 KPK
             </span>
           </div>

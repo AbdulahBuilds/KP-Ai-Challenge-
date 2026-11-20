@@ -46,7 +46,7 @@ Provide your clinical analysis in valid JSON format with exactly these keys:
   // 1. Try Gemini API if key is present
   if (apiKey) {
     try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${apiKey}`, {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -62,7 +62,7 @@ Provide your clinical analysis in valid JSON format with exactly these keys:
           const parsed = JSON.parse(text);
           return {
             ...parsed,
-            aiModel: "Google Gemini 3.5 Flash (Live LLM)"
+            aiModel: "Google Gemini 2.5 Flash (Live LLM)"
           };
         }
       }
@@ -185,36 +185,112 @@ export function fallbackClinicalTriage(referral, hospitalResources) {
 
 /**
  * AI Trauma Bay Readiness Assistant for Rescue 1122 Emergency Alerts
+ * ATLS (Advanced Trauma Life Support) aligned clinical advisory engine.
  */
-export function generateEmergencyTraumaAIAdvice({ alert, hospitalResources }) {
-  const type = (alert.emergencyType + " " + alert.vitals).toLowerCase();
+export async function generateEmergencyTraumaAIAdvice({ alert, hospitalResources }) {
+  const type = ((alert.emergencyType || "") + " " + (alert.vitals || "")).toLowerCase();
+  const reqFacilities = (alert.requiredFacilities || []).map(f => f.toLowerCase());
   
-  let code = "CODE RED (Life-Threatening)";
-  let bayChecklist = [
-    "Prepare Emergency Trauma Resuscitation Bay 1",
-    "Airway management & Rapid Sequence Intubation (RSI) kit ready",
-    "Notify on-duty Trauma Surgeon and Anesthesiologist",
-    "Alert Blood Bank for 2 units O-Negative PRBC uncrossmatched"
-  ];
-  let primaryRisk = "Hypovolemic Shock & Airway Compromise";
+  // Hospital capacity checks
+  const icuAvailable = hospitalResources?.beds?.icuAvailable ?? 0;
+  const ventsAvailable = hospitalResources?.equipment?.ventilators?.available ?? 0;
+  const oNegPrbcAvailable = hospitalResources?.bloodStock?.units?.['O-']?.prbc;
 
-  if (type.includes("burn") || type.includes("blast") || type.includes("fire")) {
-    code = "CODE RED (Severe Inhalation & Burn)";
-    bayChecklist = [
-      "Prepare Burn ICU / sterile resuscitation bay",
-      "Immediate fiberoptic bronchoscopy & intubation cart ready",
-      "Warm Hartmann's fluid infusion lines established",
-      "Notify Plastic Surgery & Burns On-Duty Specialist"
-    ];
-    primaryRisk = "Rapid Airway Edema & Inhalation Injury";
-  } else if (type.includes("cardiac") || type.includes("arrest")) {
+  let code = "CODE RED (Life-Threatening)";
+  let primaryRisk = "Hypovolemic Shock & Airway Compromise";
+  let bayChecklist = [];
+
+  // 1. Resuscitation Bay & Primary Team Activation
+  if (type.includes("cardiac") || type.includes("arrest")) {
     code = "CODE RED (Cardiac Arrest in Transit)";
-    bayChecklist = [
-      "Lucas / Mechanical CPR & Defibrillator charged at bay",
-      "ACLS medications (Epinephrine, Amiodarone) drawn",
-      "Direct transfer protocol to Cardiac Catheterization Lab"
-    ];
-    primaryRisk = "Refractory Ventricular Arrhythmia";
+    primaryRisk = "Refractory Ventricular Arrhythmia / Sudden Collapse";
+    bayChecklist.push("Prepare Resuscitation Bay 1 (Lucas / Mechanical CPR & Defibrillator charged)");
+    bayChecklist.push("Pre-draw ACLS emergency medications (Epinephrine 1mg, Amiodarone 300mg)");
+    bayChecklist.push("Direct transfer protocol to Cardiac Catheterization Lab & notify Interventional Cardiologist");
+  } else if (type.includes("burn") || type.includes("blast") || type.includes("fire")) {
+    code = "CODE RED (Severe Inhalation & Burn)";
+    primaryRisk = "Rapid Airway Edema, Severe Hypovolemia & Inhalation Injury";
+    bayChecklist.push("Prepare Burn ICU / sterile resuscitation bay with warmed ambient environment");
+    bayChecklist.push("Immediate fiberoptic bronchoscopy & endotracheal intubation cart ready");
+    bayChecklist.push("Warm Hartmann's fluid infusion lines established (Parkland formula protocol ready)");
+    bayChecklist.push("Notify Plastic Surgery & Burns On-Duty Specialist for urgent escharotomy assessment");
+  } else {
+    // Polytrauma / Major Trauma / Hemorrhage
+    code = "CODE RED (Life-Threatening Polytrauma)";
+    primaryRisk = "Hypovolemic Shock & Airway Compromise";
+    bayChecklist.push("Prepare Emergency Trauma Resuscitation Bay 1 (Shock Room)");
+    
+    // Check airway risk: GCS <= 8, BVM, shallow respirations, airway compromise
+    const isAirwayCompromised = type.includes("bvm") || type.includes("gcs 8") || type.includes("gcs 7") || 
+      type.includes("gcs 6") || type.includes("gcs 5") || type.includes("gcs 4") || type.includes("gcs 3") || 
+      type.includes("bag-valve") || type.includes("shallow") || type.includes("stridor") || type.includes("airway");
+    
+    if (isAirwayCompromised) {
+      bayChecklist.push("Airway management & Rapid Sequence Intubation (RSI) kit ready (manual in-line c-spine stabilization)");
+    } else {
+      bayChecklist.push("Prepare high-flow non-rebreather oxygen and video laryngoscope on standby");
+    }
+
+    // Multidisciplinary trauma activation
+    bayChecklist.push("Notify on-duty Trauma Surgeon and Anesthesiologist (Trauma Code Activation)");
+  }
+
+  // 2. Blood Bank & Massive Transfusion Protocol (MTP) + TXA
+  // Extract specific requested blood units if provided in facilities (e.g. "3 Units O- PRBC Blood")
+  const bloodFacilityReq = (alert.requiredFacilities || []).find(f => /o[-\+]|prbc|blood/i.test(f));
+  let requestedUnits = 2; // clinical standard emergency release pack
+  let bloodText = "";
+  
+  if (bloodFacilityReq) {
+    const match = bloodFacilityReq.match(/(\d+)\s*(?:units?|u)?/i);
+    if (match) {
+      requestedUnits = parseInt(match[1], 10);
+    }
+    bloodText = `Alert Blood Bank for ${requestedUnits} units O-Negative PRBC uncrossmatched (stat pack per paramedic request)`;
+  } else {
+    bloodText = "Alert Blood Bank for 2 units O-Negative PRBC uncrossmatched (stat emergency pack)";
+  }
+  
+  // Severe hemorrhage / shock detection
+  const isSevereHemorrhage = type.includes("massive blood") || type.includes("bp 80") || type.includes("bp 70") || 
+    type.includes("bp 60") || type.includes("shock") || type.includes("femur") || type.includes("hemorrhage") ||
+    reqFacilities.some(f => f.includes("blood") || f.includes("prbc"));
+
+  if (isSevereHemorrhage && !type.includes("cardiac")) {
+    bayChecklist.push(bloodText);
+    bayChecklist.push("Activate Massive Transfusion Protocol (MTP 1:1:1 PRBC/FFP/Platelets) & prepare IV Tranexamic Acid (TXA 1g stat within 3h of injury)");
+  } else if (!type.includes("cardiac") && !type.includes("burn")) {
+    bayChecklist.push("Alert Blood Bank for 2 units O-Negative PRBC on standby & ready rapid blood warmer");
+  }
+
+  // 3. Specialist Team Alerts tailored to injuries and required facilities
+  const hasOrthoInjury = reqFacilities.some(f => f.includes("orthopedic") || f.includes("fracture")) || 
+    type.includes("femur") || type.includes("fracture") || type.includes("compound");
+  if (hasOrthoInjury) {
+    bayChecklist.push("Alert On-Call Orthopedic Team for open fracture stabilization / urgent washout");
+    bayChecklist.push("Prepare femur traction splint, commercial tourniquet & sterile pressure dressing pack");
+  }
+
+  const hasOTReq = reqFacilities.some(f => f.includes("theatre") || f.includes("operation") || f.includes("ot"));
+  if (hasOTReq) {
+    bayChecklist.push("Reserve Trauma Operation Theatre (Emergency OT) & alert surgical scrub team");
+  }
+
+  const hasNeuroInjury = reqFacilities.some(f => f.includes("neuro")) || type.includes("head injury") || type.includes("subdural");
+  if (hasNeuroInjury) {
+    bayChecklist.push("Alert On-Call Neurosurgeon & clear Trauma CT suite for urgent brain scan");
+  }
+
+  // 4. Ventilator & ICU notification
+  const hasVentReq = reqFacilities.some(f => f.includes("ventilator")) || type.includes("bag-valve") || type.includes("shallow");
+  if (hasVentReq && !type.includes("cardiac") && !type.includes("burn")) {
+    bayChecklist.push("Ready mechanical ventilator with trauma settings (lung-protective mode)");
+  }
+
+  // Build resource notice with blood inventory if available
+  let bedNotice = `Hospital has ${icuAvailable} ICU beds and ${ventsAvailable} ventilators available.`;
+  if (oNegPrbcAvailable !== undefined) {
+    bedNotice += ` Blood Bank: ${oNegPrbcAvailable} units O-Negative PRBC currently in stock.`;
   }
 
   return {
@@ -222,7 +298,7 @@ export function generateEmergencyTraumaAIAdvice({ alert, hospitalResources }) {
     primaryRisk,
     etaUrgency: (alert.etaMinutes <= 10) ? "CRITICAL IMMEDIATE ARRIVAL" : "PREPARATORY WINDOW",
     bayChecklist,
-    bedNotice: `Hospital has ${hospitalResources?.beds?.icuAvailable || 0} ICU beds and ${hospitalResources?.equipment?.ventilators?.available || 0} ventilators available.`
+    bedNotice
   };
 }
 

@@ -35,6 +35,8 @@ export default function TopNav({
   pendingReferralsCount = 0,
   soundEnabled = true,
   onToggleSound,
+  surgeStatus,
+  lastSyncTime,
 }) {
   const totalNotifications = activeAlertsCount + pendingReferralsCount;
 
@@ -77,10 +79,27 @@ export default function TopNav({
       <div className="flex items-center space-x-2 sm:space-x-3 flex-shrink-0">
         {/* Hospital Surge Code Status Pill */}
         <div className="hidden sm:flex items-center">
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span>ED: NORMAL (CODE GREEN)</span>
+          <div
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border ${
+              surgeStatus?.badgeClass || 'bg-emerald-50 text-emerald-800 border-emerald-200'
+            }`}
+          >
+            <span
+              className={`w-2 h-2 rounded-full ${
+                surgeStatus?.dotClass || 'bg-emerald-500 animate-pulse'
+              }`}
+            ></span>
+            <span>{surgeStatus?.label || 'ED: NORMAL (CODE GREEN)'}</span>
           </div>
+        </div>
+
+        {/* Live Background Sync Telemetry Pill */}
+        <div
+          className="hidden lg:flex items-center gap-1.5 text-[11px] text-slate-500 font-medium px-2.5 py-1 rounded-full bg-slate-50 border border-slate-200"
+          title={`Live telemetry syncing. Last updated ${lastSyncTime ? lastSyncTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'now'}`}
+        >
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+          <span>Live Sync</span>
         </div>
 
         {/* Audio Alert Toggle */}
@@ -91,7 +110,7 @@ export default function TopNav({
             className={`p-2 rounded-lg transition-colors border ${
               soundEnabled
                 ? 'text-teal-700 bg-teal-50 border-teal-200 hover:bg-teal-100'
-                : 'text-slate-400 bg-slate-50 border-slate-200 hover:text-slate-600'
+                : 'text-slate-400 bg-white border-slate-200 hover:text-slate-600'
             }`}
           >
             {soundEnabled ? (

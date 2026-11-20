@@ -14,6 +14,7 @@ export default function Modal({
   title,
   description,
   children,
+  footer,
   maxWidth = 'max-w-2xl',
 }) {
   useEffect(() => {
@@ -37,10 +38,10 @@ export default function Modal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
       <div
-        className={`bg-white rounded-xl border border-surface-border shadow-modal w-full ${maxWidth} max-h-[90vh] flex flex-col overflow-hidden animate-scaleIn`}
+        className={`bg-white rounded-xl border border-surface-border shadow-modal w-full ${maxWidth} max-h-[92vh] flex flex-col overflow-hidden animate-scaleIn`}
       >
         {/* Header */}
-        <div className="px-6 py-4 border-b border-surface-border flex items-start justify-between">
+        <div className="px-6 py-3.5 border-b border-surface-border flex items-start justify-between">
           <div>
             <h3 className="text-base md:text-lg font-semibold text-typography-primary">
               {title}
@@ -61,9 +62,16 @@ export default function Modal({
         </div>
 
         {/* Content Body */}
-        <div className="p-6 overflow-y-auto flex-1">
+        <div className="p-5 md:p-6 overflow-y-auto flex-1">
           {children}
         </div>
+
+        {/* Pinned Modal Footer */}
+        {footer && (
+          <div className="px-6 py-3.5 border-t border-surface-border bg-slate-50/80 shrink-0">
+            {footer}
+          </div>
+        )}
       </div>
     </div>
   );

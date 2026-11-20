@@ -19,7 +19,7 @@ export function Table({ children, className = '' }) {
 
 export function TableHeader({ children, className = '' }) {
   return (
-    <thead className={`bg-surface-main text-typography-secondary text-xs font-semibold uppercase tracking-wider border-b border-surface-border ${className}`}>
+    <thead className={`bg-white text-typography-secondary text-xs font-semibold uppercase tracking-wider border-b border-surface-border ${className}`}>
       {children}
     </thead>
   );

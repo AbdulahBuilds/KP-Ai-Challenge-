@@ -5,11 +5,13 @@
 @layer base {
   html {
     color-scheme: light;
+    background-color: #ffffff;
   }
 
   body {
-    @apply bg-surface-main text-typography-primary antialiased;
+    @apply bg-white text-typography-primary antialiased;
     font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+    background-color: #ffffff;
   }
 
   /* Professional typography hierarchy per healthcare standard */

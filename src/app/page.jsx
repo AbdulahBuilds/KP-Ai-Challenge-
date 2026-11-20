@@ -8,7 +8,7 @@ import {
   FileText, Award, Bell, Eye, ArrowUpRight, Sparkles, Brain, ShieldAlert,
   ChevronRight, Building2, Package, HeartPulse, Search, Plus, Minus,
   Filter, ArrowRight, Gauge, CheckSquare, AlertCircle, Volume2, VolumeX,
-  Heart, Thermometer, Wind, Ambulance
+  Heart, Thermometer, Wind, Ambulance, User
 } from 'lucide-react';
 
 // Reusable Design System Components
@@ -24,6 +24,10 @@ import PageHeader from '../components/ui/PageHeader';
 // Layout Components
 import Sidebar from '../components/layout/Sidebar';
 import TopNav from '../components/layout/TopNav';
+import EmergencyTraumaBanner from '../components/dashboard/EmergencyTraumaBanner';
+
+// Audio Notification System
+import { audioAlerts } from '../lib/audioAlerts';
 
 export default function HospitalPortal() {
   // Authentication State
@@ -73,7 +77,8 @@ export default function HospitalPortal() {
   const [confirmEmergencyFacilities, setConfirmEmergencyFacilities] = useState({
     traumaBay: true,
     ventilator: true,
-    bloodBank: true
+    bloodBank: true,
+    surgicalTeam: true
   });
   const [assignedBay, setAssignedBay] = useState('Trauma Bay 1 (Resuscitation)');
   const [isProcessingAlert, setIsProcessingAlert] = useState(false);
@@ -84,11 +89,27 @@ export default function HospitalPortal() {
 
   // Notification audio toggle
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const [lastSyncTime, setLastSyncTime] = useState(new Date());
+
+  function handleToggleSound() {
+    const nextState = !soundEnabled;
+    setSoundEnabled(nextState);
+    audioAlerts.playToggleChime(nextState);
+  }
 
   // Auto-login default user on mount (LRH Peshawar) for instant review
   useEffect(() => {
     handleLogin('staff@lrh.gov.pk', 'password123');
   }, []);
+
+  // Periodic Background Auto-Polling (every 25 seconds)
+  useEffect(() => {
+    if (!hospital?.id) return;
+    const intervalId = setInterval(() => {
+      silentRefreshData(hospital.id);
+    }, 25000);
+    return () => clearInterval(intervalId);
+  }, [hospital?.id, soundEnabled]);
 
   async function handleLogin(email, pass) {
     setIsLoggingIn(true);
@@ -147,10 +168,49 @@ export default function HospitalPortal() {
       if (emData.success) {
         setEmergencyAlerts(emData.alerts);
       }
+      setLastSyncTime(new Date());
     } catch (e) {
       console.error('Error refreshing hospital data:', e);
     } finally {
       setIsRefreshing(false);
+    }
+  }
+
+  // Silent Background Telemetry Sync (No Page Spinner/Flicker)
+  async function silentRefreshData(hospitalId) {
+    if (!hospitalId) return;
+    try {
+      // 1. Fetch Referrals
+      const refRes = await fetch(`/api/referrals?hospitalId=${hospitalId}`);
+      const refData = await refRes.json();
+      if (refData.success) {
+        setReferrals(refData.referrals);
+      }
+
+      // 2. Fetch Emergency Alerts & trigger chime on new active alert
+      const emRes = await fetch(`/api/emergency-alerts?hospitalId=${hospitalId}`);
+      const emData = await emRes.json();
+      if (emData.success) {
+        setEmergencyAlerts(prev => {
+          const prevActive = prev.filter(a => a.status === 'ALERT_RECEIVED').length;
+          const newActive = emData.alerts.filter(a => a.status === 'ALERT_RECEIVED').length;
+          if (newActive > prevActive && soundEnabled) {
+            audioAlerts.playEmergencySiren();
+          }
+          return emData.alerts;
+        });
+      }
+
+      // 3. Update hospital resources
+      const hRes = await fetch(`/api/hospitals/${hospitalId}`);
+      const hData = await hRes.json();
+      if (hData.success) {
+        setHospital(hData.hospital);
+      }
+
+      setLastSyncTime(new Date());
+    } catch (e) {
+      console.error('Silent telemetry sync error:', e);
     }
   }
 
@@ -303,7 +363,8 @@ export default function HospitalPortal() {
       const confirmed = [];
       if (confirmEmergencyFacilities.traumaBay) confirmed.push(assignedBay);
       if (confirmEmergencyFacilities.ventilator) confirmed.push("Ventilator & Rapid Airway Team Prepared");
-      if (confirmEmergencyFacilities.bloodBank) confirmed.push("Emergency Blood Reserved");
+      if (confirmEmergencyFacilities.bloodBank) confirmed.push("Emergency Blood & MTP Protocol Reserved");
+      if (confirmEmergencyFacilities.surgicalTeam) confirmed.push("On-Call Specialist & Surgical Team on Standby");
 
       const res = await fetch(`/api/emergency-alerts/${selectedAlert.id}`, {
         method: 'PATCH',
@@ -346,6 +407,35 @@ export default function HospitalPortal() {
   const activeAlerts = emergencyAlerts.filter(a => a.status === 'ALERT_RECEIVED');
   const activeAlertsCount = activeAlerts.length;
 
+  // Dynamic Hospital Surge Level (CODE GREEN / YELLOW / RED)
+  const surgeStatus = useMemo(() => {
+    // CODE RED: ICU available <= 2 OR General occupancy >= 92% OR active inbound trauma alerts >= 3
+    if (availableIcuBeds <= 2 || bedOccupancyRate >= 92 || activeAlertsCount >= 3) {
+      return {
+        code: 'RED',
+        label: 'ED: SURGE (CODE RED)',
+        badgeClass: 'bg-rose-50 text-rose-800 border-rose-200',
+        dotClass: 'bg-rose-600 animate-ping'
+      };
+    }
+    // CODE YELLOW: Elevated occupancy (General >= 80% or ICU >= 80% or pending referrals >= 4)
+    if (bedOccupancyRate >= 80 || icuOccupancyRate >= 80 || pendingReferralsCount >= 4) {
+      return {
+        code: 'YELLOW',
+        label: 'ED: ELEVATED (CODE YELLOW)',
+        badgeClass: 'bg-amber-50 text-amber-800 border-amber-200',
+        dotClass: 'bg-amber-500 animate-pulse'
+      };
+    }
+    // CODE GREEN: Normal operational capacity
+    return {
+      code: 'GREEN',
+      label: 'ED: NORMAL (CODE GREEN)',
+      badgeClass: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+      dotClass: 'bg-emerald-500 animate-pulse'
+    };
+  }, [availableIcuBeds, bedOccupancyRate, icuOccupancyRate, activeAlertsCount, pendingReferralsCount]);
+
   // Filtered referrals list with search
   const filteredReferrals = useMemo(() => {
     return referrals.filter(r => {
@@ -376,7 +466,7 @@ export default function HospitalPortal() {
   // -------------------------------------------------------------
   if (!currentUser) {
     return (
-      <div className="min-h-screen bg-surface-main flex flex-col justify-center items-center px-4 py-12 relative">
+      <div className="min-h-screen bg-white flex flex-col justify-center items-center px-4 py-12 relative">
         <div className="max-w-md w-full bg-white rounded-xl border border-surface-border p-8 shadow-card">
           <div className="text-center mb-6">
             <div className="w-14 h-14 bg-brand-primary text-white rounded-xl flex items-center justify-center mx-auto mb-3 shadow-sm">
@@ -438,7 +528,7 @@ export default function HospitalPortal() {
               <button
                 type="button"
                 onClick={() => { setLoginEmail('staff@lrh.gov.pk'); setLoginPassword('password123'); handleLogin('staff@lrh.gov.pk', 'password123'); }}
-                className="p-2.5 rounded-lg bg-surface-main hover:bg-slate-100 border border-surface-border text-left transition-all"
+                className="p-2.5 rounded-lg bg-white hover:bg-slate-50 border border-surface-border text-left transition-all"
               >
                 <div className="font-semibold text-brand-primary">LRH Peshawar</div>
                 <div className="text-[11px] text-typography-secondary">Tertiary Hospital</div>
@@ -446,7 +536,7 @@ export default function HospitalPortal() {
               <button
                 type="button"
                 onClick={() => { setLoginEmail('staff@hmc.gov.pk'); setLoginPassword('password123'); handleLogin('staff@hmc.gov.pk', 'password123'); }}
-                className="p-2.5 rounded-lg bg-surface-main hover:bg-slate-100 border border-surface-border text-left transition-all"
+                className="p-2.5 rounded-lg bg-white hover:bg-slate-50 border border-surface-border text-left transition-all"
               >
                 <div className="font-semibold text-brand-primary">HMC Peshawar</div>
                 <div className="text-[11px] text-typography-secondary">Tertiary Hospital</div>
@@ -462,7 +552,7 @@ export default function HospitalPortal() {
               <button
                 type="button"
                 onClick={() => { setLoginEmail('staff@dhqmardan.gov.pk'); setLoginPassword('password123'); handleLogin('staff@dhqmardan.gov.pk', 'password123'); }}
-                className="p-2.5 rounded-lg bg-surface-main hover:bg-slate-100 border border-surface-border text-left transition-all"
+                className="p-2.5 rounded-lg bg-white hover:bg-slate-50 border border-surface-border text-left transition-all"
               >
                 <div className="font-semibold text-brand-primary">DHQ Mardan</div>
                 <div className="text-[11px] text-typography-secondary">District Hospital</div>
@@ -478,8 +568,8 @@ export default function HospitalPortal() {
   // 2. MAIN LOGGED-IN CLINICAL PORTAL SHELL
   // -------------------------------------------------------------
   return (
-    <div className="min-h-screen bg-surface-main flex font-sans">
-      {/* Sidebar: Dark Healthcare Blue (#164E78) */}
+    <div className="min-h-screen bg-white flex font-sans">
+      {/* Sidebar: Clean Healthcare Layout matching Dashboard */}
       <Sidebar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
@@ -493,7 +583,7 @@ export default function HospitalPortal() {
       />
 
       {/* Main Content Area */}
-      <div className="flex-1 lg:pl-64 flex flex-col min-w-0">
+      <div className="flex-1 lg:pl-64 flex flex-col min-w-0 bg-white">
         {/* Top Navigation */}
         <TopNav
           activeTabTitle={tabTitles[activeTab] || 'Dashboard'}
@@ -505,7 +595,9 @@ export default function HospitalPortal() {
           activeAlertsCount={activeAlertsCount}
           pendingReferralsCount={pendingReferralsCount}
           soundEnabled={soundEnabled}
-          onToggleSound={() => setSoundEnabled(!soundEnabled)}
+          onToggleSound={handleToggleSound}
+          surgeStatus={surgeStatus}
+          lastSyncTime={lastSyncTime}
         />
 
         {/* Staleness / Outdated Warning Notice Banner */}
@@ -531,48 +623,13 @@ export default function HospitalPortal() {
         )}
 
         {/* Content Container */}
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto space-y-6">
+        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto space-y-6 bg-white">
 
           {/* =========================================================
               TAB 1: HOSPITAL DASHBOARD
               ========================================================= */}
           {activeTab === 'dashboard' && (
             <div className="space-y-6">
-              {/* Emergency Radar Inbound Alert Banner (Appears when active Rescue 1122 cases exist) */}
-              {activeAlertsCount > 0 && (
-                <div className="p-4 sm:p-5 rounded-xl bg-rose-50 border border-rose-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 animate-emergency-beacon">
-                  <div className="flex items-start sm:items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-emergency-600 text-white flex items-center justify-center flex-shrink-0 shadow-md">
-                      <Siren className="w-5 h-5 animate-pulse" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-xs font-bold uppercase tracking-wider text-emergency-700 bg-rose-100 px-2 py-0.5 rounded">
-                          Rescue 1122 Inbound Trauma Alert
-                        </span>
-                        <span className="text-xs font-bold text-emergency-800">
-                          ETA: {activeAlerts[0]?.etaMinutes || 8} mins • Ambulance {activeAlerts[0]?.ambulanceId}
-                        </span>
-                      </div>
-                      <p className="text-sm font-semibold text-slate-900 mt-0.5">
-                        {activeAlerts[0]?.emergencyType}: {activeAlerts[0]?.vitals}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      icon={Siren}
-                      onClick={() => openEmergencyAlert(activeAlerts[0])}
-                    >
-                      Mobilize Trauma Bay & Transmit
-                    </Button>
-                  </div>
-                </div>
-              )}
-
               {/* Header */}
               <PageHeader
                 title="Hospital Operations Dashboard"
@@ -605,6 +662,14 @@ export default function HospitalPortal() {
                   </div>
                 }
               />
+
+              {/* Emergency Radar Inbound Alert Banner (Appears when active Rescue 1122 cases exist) */}
+              {activeAlertsCount > 0 && (
+                <EmergencyTraumaBanner
+                  alerts={activeAlerts}
+                  onOpenAlert={openEmergencyAlert}
+                />
+              )}
 
               {/* Fluid, Non-Breaking Clinical KPI Metric Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
@@ -697,6 +762,7 @@ export default function HospitalPortal() {
                   <Button
                     variant="primary"
                     size="sm"
+                    icon={ShieldCheck}
                     onClick={handleReverifyAllNow}
                     isLoading={isSavingResources}
                   >
@@ -705,16 +771,18 @@ export default function HospitalPortal() {
                   <Button
                     variant="secondary"
                     size="sm"
-                    onClick={() => setActiveTab('referrals')}
+                    icon={Bed}
+                    onClick={() => setActiveTab('resources')}
                   >
-                    Review Referrals ({pendingReferralsCount})
+                    Update Inventory
                   </Button>
                   <Button
-                    variant={activeAlertsCount > 0 ? "destructive" : "secondary"}
+                    variant="secondary"
                     size="sm"
-                    onClick={() => setActiveTab('emergency')}
+                    icon={Users}
+                    onClick={() => setActiveTab('referrals')}
                   >
-                    1122 Alerts ({activeAlertsCount})
+                    Triage Queue ({pendingReferralsCount})
                   </Button>
                 </div>
               </div>
@@ -723,114 +791,211 @@ export default function HospitalPortal() {
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Recent Incoming BHU Referrals Feed */}
                 <Card>
-                  <CardHeader className="flex flex-row items-center justify-between">
+                  <CardHeader className="flex flex-row items-center justify-between pb-3">
                     <div>
-                      <CardTitle className="flex items-center gap-2 text-sm sm:text-base">
-                        <Users className="w-4 h-4 text-brand-primary" />
-                        <span>Incoming BHU Patient Referrals</span>
-                      </CardTitle>
-                      <CardDescription>Patients dispatched from rural & basic health units</CardDescription>
+                      <div className="flex items-center gap-2">
+                        <CardTitle className="flex items-center gap-2 text-sm sm:text-base">
+                          <Users className="w-4 h-4 text-brand-primary" />
+                          <span>Incoming BHU Patient Referrals</span>
+                        </CardTitle>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-brand-50 text-brand-primary border border-brand-200">
+                          PRIORITY QUEUE
+                        </span>
+                      </div>
+                      <CardDescription className="text-xs text-slate-500 mt-0.5">
+                        Patients referred from rural Basic Health Units for tertiary admission
+                      </CardDescription>
                     </div>
                     <Button
                       variant="ghost"
                       size="sm"
                       onClick={() => setActiveTab('referrals')}
+                      className="text-xs font-semibold text-brand-primary hover:text-brand-primaryHover"
                     >
                       View All ({referrals.length})
                     </Button>
                   </CardHeader>
-                  <CardContent className="space-y-3 pt-3">
+                  <CardContent className="space-y-3 pt-1">
                     {referrals.slice(0, 3).length === 0 ? (
                       <p className="text-xs text-typography-secondary py-6 text-center">No incoming patient referrals received yet.</p>
                     ) : (
-                      referrals.slice(0, 3).map(ref => (
-                        <div
-                          key={ref.id}
-                          className="p-3.5 rounded-xl border border-surface-border hover:border-brand-primary/40 bg-white hover:bg-slate-50/50 flex items-center justify-between transition-all"
-                        >
-                          <div>
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-semibold text-xs text-typography-primary">{ref.patientName}</span>
-                              <span className="text-[11px] text-typography-secondary font-mono">({ref.age}y, {ref.gender})</span>
-                              <StatusBadge status={ref.status} size="xs" />
+                      referrals.slice(0, 3).map(ref => {
+                        const isPending = ref.status === 'PENDING';
+                        return (
+                          <div
+                            key={ref.id}
+                            className={`p-3.5 rounded-xl border bg-white hover:bg-slate-50/70 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs ${
+                              isPending
+                                ? 'border-amber-200 border-l-4 border-l-amber-500'
+                                : 'border-slate-200 border-l-4 border-l-emerald-500'
+                            }`}
+                          >
+                            <div className="flex-1 min-w-0 space-y-1.5">
+                              {/* Patient Name, Demographics & Status */}
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-bold text-sm text-slate-900">{ref.patientName}</span>
+                                <span className="text-[11px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200">
+                                  {ref.age}y • {ref.gender}
+                                </span>
+                                <StatusBadge status={ref.status} size="xs" />
+                              </div>
+
+                              {/* Origin BHU & Doctor */}
+                              <div className="text-xs text-slate-500 flex items-center gap-1.5 flex-wrap">
+                                <Building2 className="w-3.5 h-3.5 text-brand-teal shrink-0" />
+                                <span>From: <strong className="text-slate-800 font-semibold">{ref.referringBHU}</strong></span>
+                                <span className="text-slate-300">•</span>
+                                <span>Dr. {ref.bhuDoctorName}</span>
+                              </div>
+
+                              {/* Symptoms Description (Clean, Readable, No Awkward Gaps) */}
+                              <p className="text-xs text-slate-600 leading-relaxed font-normal">
+                                {ref.symptoms}
+                              </p>
+
+                              {/* Required Services Tags */}
+                              {ref.requiredServices && ref.requiredServices.length > 0 && (
+                                <div className="flex items-center gap-1.5 flex-wrap pt-0.5 text-xs">
+                                  <span className="text-[11px] font-semibold text-slate-400">Required:</span>
+                                  {ref.requiredServices.slice(0, 2).map((srv, idx) => (
+                                    <span
+                                      key={idx}
+                                      className="bg-brand-50 text-brand-primary text-[10px] font-semibold px-2 py-0.5 rounded border border-brand-100"
+                                    >
+                                      {srv}
+                                    </span>
+                                  ))}
+                                  {ref.requiredServices.length > 2 && (
+                                    <span className="text-[10px] text-slate-400 font-medium">
+                                      +{ref.requiredServices.length - 2} more
+                                    </span>
+                                  )}
+                                </div>
+                              )}
                             </div>
-                            <div className="text-[11px] text-typography-secondary mt-1">
-                              From: <strong className="text-typography-primary">{ref.referringBHU}</strong> • Dr. {ref.bhuDoctorName}
-                            </div>
-                            <div className="text-[11px] text-typography-secondary truncate max-w-xs sm:max-w-sm mt-0.5">
-                              {ref.symptoms}
+
+                            {/* Action Button */}
+                            <div className="shrink-0 flex items-center self-start sm:self-center">
+                              <Button
+                                variant={isPending ? "primary" : "secondary"}
+                                size="sm"
+                                icon={isPending ? ArrowUpRight : Eye}
+                                onClick={() => openReferralDetails(ref)}
+                                className={isPending ? "font-semibold shadow-xs" : ""}
+                              >
+                                {isPending ? "Triage & Review" : "View Case"}
+                              </Button>
                             </div>
                           </div>
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            icon={Sparkles}
-                            onClick={() => openReferralDetails(ref)}
-                          >
-                            Review
-                          </Button>
-                        </div>
-                      ))
+                        );
+                      })
                     )}
                   </CardContent>
                 </Card>
 
                 {/* Recent Rescue 1122 Alerts Feed */}
                 <Card>
-                  <CardHeader className="flex flex-row items-center justify-between">
+                  <CardHeader className="flex flex-row items-center justify-between pb-3">
                     <div>
-                      <CardTitle className="flex items-center gap-2 text-sm sm:text-base">
-                        <Siren className="w-4 h-4 text-emergency-600" />
-                        <span>Rescue 1122 Emergency Alerts</span>
-                      </CardTitle>
-                      <CardDescription>Pre-arrival trauma alerts from inbound 1122 ambulances</CardDescription>
+                      <div className="flex items-center gap-2">
+                        <CardTitle className="flex items-center gap-2 text-sm sm:text-base">
+                          <Siren className="w-4 h-4 text-emergency-600" />
+                          <span>Rescue 1122 Emergency Alerts</span>
+                        </CardTitle>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-emergency-700 border border-rose-200">
+                          PRE-ARRIVAL RADAR
+                        </span>
+                      </div>
+                      <CardDescription className="text-xs text-slate-500 mt-0.5">
+                        Pre-arrival trauma alerts from inbound 1122 ambulances
+                      </CardDescription>
                     </div>
                     <Button
                       variant="ghost"
                       size="sm"
                       onClick={() => setActiveTab('emergency')}
+                      className="text-xs font-semibold text-emergency-700 hover:text-emergency-800"
                     >
                       View All ({emergencyAlerts.length})
                     </Button>
                   </CardHeader>
-                  <CardContent className="space-y-3 pt-3">
+                  <CardContent className="space-y-3 pt-1">
                     {emergencyAlerts.slice(0, 3).length === 0 ? (
-                      <p className="text-xs text-typography-secondary py-6 text-center">No active pre-arrival alerts from Rescue 1122.</p>
+                      <div className="py-8 px-4 text-center rounded-xl bg-slate-50/50 border border-dashed border-slate-200 flex flex-col items-center justify-center space-y-2">
+                        <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center border border-emerald-200/80">
+                          <CheckCircle2 className="w-5 h-5" />
+                        </div>
+                        <div className="text-xs font-bold text-slate-800">
+                          Emergency Radar Clear
+                        </div>
+                        <p className="text-[11px] text-slate-500 max-w-xs leading-relaxed">
+                          No inbound Rescue 1122 ambulances dispatched to hospital at this moment. Emergency trauma bays ready.
+                        </p>
+                      </div>
                     ) : (
-                      emergencyAlerts.slice(0, 3).map(alert => (
-                        <div
-                          key={alert.id}
-                          className={`p-3.5 rounded-xl border flex items-center justify-between transition-all ${
-                            alert.status === 'ALERT_RECEIVED'
-                              ? 'bg-rose-50/40 border-rose-200'
-                              : 'bg-white border-surface-border'
-                          }`}
-                        >
-                          <div>
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-semibold text-xs text-typography-primary">{alert.emergencyType}</span>
-                              <StatusBadge
-                                status={alert.status === 'ALERT_RECEIVED' ? 'CRITICAL' : 'ACCEPTED'}
-                                label={alert.status === 'ALERT_RECEIVED' ? 'Inbound' : 'Bay Ready'}
-                                size="xs"
-                              />
+                      emergencyAlerts.slice(0, 3).map(alert => {
+                        const isInbound = alert.status === 'ALERT_RECEIVED';
+                        return (
+                          <div
+                            key={alert.id}
+                            className={`p-3.5 rounded-xl border bg-white hover:bg-slate-50/70 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs ${
+                              isInbound
+                                ? 'border-rose-200 border-l-4 border-l-rose-600 bg-rose-50/20'
+                                : 'border-slate-200 border-l-4 border-l-emerald-500'
+                            }`}
+                          >
+                            <div className="flex-1 min-w-0 space-y-1.5">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-bold text-sm text-slate-900">{alert.emergencyType}</span>
+                                <StatusBadge
+                                  status={isInbound ? 'CRITICAL' : 'ACCEPTED'}
+                                  label={isInbound ? 'Inbound' : 'Bay Ready'}
+                                  size="xs"
+                                />
+                              </div>
+
+                              <div className="text-xs text-slate-500 flex items-center gap-1.5 flex-wrap">
+                                <Ambulance className="w-3.5 h-3.5 text-emergency-600 shrink-0" />
+                                <span>Ambulance: <strong className="text-slate-800 font-semibold">{alert.ambulanceId}</strong></span>
+                                <span className="text-slate-300">•</span>
+                                <span>ETA: <strong className="text-emergency-600 font-bold">{alert.etaMinutes} mins</strong></span>
+                              </div>
+
+                              {alert.vitals && (
+                                <p className="text-xs text-slate-600 leading-relaxed font-normal">
+                                  {alert.vitals}
+                                </p>
+                              )}
+
+                              {alert.requiredFacilities && alert.requiredFacilities.length > 0 && (
+                                <div className="flex items-center gap-1.5 flex-wrap pt-0.5 text-xs">
+                                  <span className="text-[11px] font-semibold text-slate-400">Required:</span>
+                                  {alert.requiredFacilities.map((fac, idx) => (
+                                    <span
+                                      key={idx}
+                                      className="bg-slate-100 text-slate-700 text-[10px] font-medium px-2 py-0.5 rounded border border-slate-200"
+                                    >
+                                      {fac}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
                             </div>
-                            <div className="text-[11px] text-typography-secondary mt-1">
-                              Ambulance: <strong className="text-typography-primary">{alert.ambulanceId}</strong> • ETA: <span className="text-emergency-600 font-bold">{alert.etaMinutes} mins</span>
-                            </div>
-                            <div className="text-[11px] text-typography-secondary mt-0.5 truncate max-w-xs">
-                              Required: {alert.requiredFacilities.join(', ')}
+
+                            <div className="shrink-0 flex items-center self-start sm:self-center">
+                              <Button
+                                variant={isInbound ? 'destructive' : 'secondary'}
+                                size="sm"
+                                icon={isInbound ? Siren : Eye}
+                                onClick={() => openEmergencyAlert(alert)}
+                                className={isInbound ? "font-bold shadow-xs" : ""}
+                              >
+                                {isInbound ? 'Respond' : 'View Bay'}
+                              </Button>
                             </div>
                           </div>
-                          <Button
-                            variant={alert.status === 'ALERT_RECEIVED' ? 'destructive' : 'secondary'}
-                            size="sm"
-                            onClick={() => openEmergencyAlert(alert)}
-                          >
-                            Respond
-                          </Button>
-                        </div>
-                      ))
+                        );
+                      })
                     )}
                   </CardContent>
                 </Card>
@@ -914,7 +1079,7 @@ export default function HospitalPortal() {
                 {resourceSubTab === 'beds' && (
                   <div className="space-y-6">
                     {/* Capacity Overview Bar */}
-                    <div className="p-4 sm:p-5 rounded-xl bg-slate-50 border border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div className="p-4 sm:p-5 rounded-xl bg-white border border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
                       <div className="space-y-1">
                         <div className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
                           <Gauge className="w-4 h-4 text-brand-primary" />
@@ -959,7 +1124,7 @@ export default function HospitalPortal() {
                                 beds: { ...resourceData.beds, total: val }
                               });
                             }}
-                            className="w-10 h-10 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 flex items-center justify-center font-bold text-slate-700 transition-colors"
+                            className="w-10 h-10 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 flex items-center justify-center font-bold text-slate-700 transition-colors"
                           >
                             <Minus className="w-4 h-4" />
                           </button>
@@ -984,7 +1149,7 @@ export default function HospitalPortal() {
                                 beds: { ...resourceData.beds, total: val }
                               });
                             }}
-                            className="w-10 h-10 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 flex items-center justify-center font-bold text-slate-700 transition-colors"
+                            className="w-10 h-10 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 flex items-center justify-center font-bold text-slate-700 transition-colors"
                           >
                             <Plus className="w-4 h-4" />
                           </button>
@@ -999,7 +1164,7 @@ export default function HospitalPortal() {
                                 beds: { ...resourceData.beds, total: val }
                               });
                             }}
-                            className="px-2.5 py-1 text-xs rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold"
+                            className="px-2.5 py-1 text-xs rounded bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold"
                           >
                             -10
                           </button>
@@ -1012,7 +1177,7 @@ export default function HospitalPortal() {
                                 beds: { ...resourceData.beds, total: val }
                               });
                             }}
-                            className="px-2.5 py-1 text-xs rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold"
+                            className="px-2.5 py-1 text-xs rounded bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold"
                           >
                             +10
                           </button>
@@ -1133,7 +1298,7 @@ export default function HospitalPortal() {
                                 beds: { ...resourceData.beds, icuTotal: val }
                               });
                             }}
-                            className="w-10 h-10 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 flex items-center justify-center font-bold text-slate-700 transition-colors"
+                            className="w-10 h-10 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 flex items-center justify-center font-bold text-slate-700 transition-colors"
                           >
                             <Minus className="w-4 h-4" />
                           </button>
@@ -1158,7 +1323,7 @@ export default function HospitalPortal() {
                                 beds: { ...resourceData.beds, icuTotal: val }
                               });
                             }}
-                            className="w-10 h-10 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 flex items-center justify-center font-bold text-slate-700 transition-colors"
+                            className="w-10 h-10 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 flex items-center justify-center font-bold text-slate-700 transition-colors"
                           >
                             <Plus className="w-4 h-4" />
                           </button>
@@ -1220,7 +1385,7 @@ export default function HospitalPortal() {
                       </div>
 
                       {/* Inpatient Occupied Count Summary */}
-                      <div className="p-5 rounded-xl border border-slate-200 bg-slate-50/60 shadow-xs space-y-3">
+                      <div className="p-5 rounded-xl border border-slate-200 bg-white shadow-xs space-y-3">
                         <div className="flex items-center justify-between">
                           <span className="text-xs font-bold text-typography-secondary uppercase tracking-wider">Occupied General Beds</span>
                           <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-200 text-slate-700">INPATIENT</span>
@@ -1256,7 +1421,7 @@ export default function HospitalPortal() {
                 {/* SUB-TAB 2: BLOOD BANK INVENTORY MATRIX (CLEAN, TABLE-BASED) */}
                 {resourceSubTab === 'blood' && (
                   <div className="space-y-4">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-700">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl bg-white border border-slate-200 text-xs text-slate-700">
                       <div>
                         <strong className="text-slate-900 font-bold">KPK Regional Blood Bank Inventory Matrix</strong>
                         <p className="text-[11px] text-slate-500 mt-0.5">Real-time stock of Whole Blood, Packed RBCs, Fresh Frozen Plasma, Platelets, and Cryoprecipitate across all 8 groups.</p>
@@ -1274,7 +1439,7 @@ export default function HospitalPortal() {
                     {/* Professional, Non-Breaking Blood Bank Table */}
                     <div className="overflow-x-auto rounded-xl border border-surface-border bg-white shadow-xs">
                       <table className="w-full text-left text-xs min-w-[760px]">
-                        <thead className="bg-slate-50 border-b border-surface-border text-typography-secondary font-bold uppercase tracking-wider text-[11px]">
+                        <thead className="bg-white border-b border-surface-border text-typography-secondary font-bold uppercase tracking-wider text-[11px]">
                           <tr>
                             <th className="px-4 py-3">Blood Group</th>
                             <th className="px-3 py-3 text-center">Whole Blood</th>
@@ -1445,7 +1610,7 @@ export default function HospitalPortal() {
                                     }
                                   });
                                 }}
-                                className="w-full p-2 border border-slate-200 bg-slate-50 rounded-lg font-bold text-xs text-slate-700 text-center focus:outline-none"
+                                className="w-full p-2 border border-slate-200 bg-white rounded-lg font-bold text-xs text-slate-700 text-center focus:outline-none"
                               />
                             </div>
                           </div>
@@ -1518,7 +1683,7 @@ export default function HospitalPortal() {
                                   }
                                 });
                               }}
-                              className="w-full p-2 border border-slate-200 rounded-lg font-medium text-xs text-typography-primary bg-slate-50 focus:bg-white focus:outline-none"
+                              className="w-full p-2 border border-slate-200 rounded-lg font-medium text-xs text-typography-primary bg-white focus:outline-none"
                             />
                           </div>
 
@@ -1630,7 +1795,7 @@ export default function HospitalPortal() {
                       value={referralSearchTerm}
                       onChange={(e) => setReferralSearchTerm(e.target.value)}
                       placeholder="Search patient or clinic..."
-                      className="pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-800 placeholder:text-slate-400 focus:outline-none focus:bg-white focus:ring-1 focus:ring-brand-primary"
+                      className="pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-brand-primary"
                     />
                   </div>
 
@@ -1642,7 +1807,7 @@ export default function HospitalPortal() {
                         className={`px-3 py-1.5 rounded-lg transition-colors ${
                           referralFilter === filter
                             ? 'bg-brand-primary text-white shadow-xs'
-                            : 'bg-slate-100 text-typography-secondary hover:text-typography-primary'
+                            : 'bg-white border border-slate-200 text-typography-secondary hover:text-typography-primary'
                         }`}
                       >
                         {filter}
@@ -1787,7 +1952,7 @@ export default function HospitalPortal() {
                             Patient: <strong className="text-typography-primary">{alert.patientName}</strong> • {alert.location}
                           </p>
 
-                          <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs space-y-1.5 mb-3">
+                          <div className="bg-white p-3 rounded-lg border border-slate-200 text-xs space-y-1.5 mb-3">
                             <div className="text-typography-secondary">
                               <strong>Paramedic / Unit:</strong> {alert.paramedicName} ({alert.ambulanceId})
                             </div>
@@ -1955,7 +2120,7 @@ export default function HospitalPortal() {
                   </div>
                 </div>
 
-                <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1">
+                <div className="p-4 bg-white rounded-xl border border-slate-200 text-xs space-y-1">
                   <div className="font-bold text-slate-900 text-xs mb-1">Active Staff Session</div>
                   <div className="text-slate-600">Username: <strong className="text-slate-900">{currentUser.username}</strong></div>
                   <div className="text-slate-600">Role: <strong className="text-slate-900">{currentUser.role}</strong></div>
@@ -2012,100 +2177,167 @@ export default function HospitalPortal() {
         onClose={() => setSelectedReferral(null)}
         title={selectedReferral ? `${selectedReferral.patientName} (${selectedReferral.age} yrs, ${selectedReferral.gender})` : ''}
         description={selectedReferral ? `Referral ID: ${selectedReferral.id} • Dispatched from ${selectedReferral.referringBHU}` : ''}
-        maxWidth="max-w-3xl"
+        maxWidth="max-w-5xl xl:max-w-6xl"
+        footer={selectedReferral && (
+          selectedReferral.status === 'PENDING' ? (
+            <div className="w-full flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+              {/* Mandatory Checklist as clean interactive verification pills */}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mr-1 flex items-center gap-1">
+                  <CheckSquare className="w-3.5 h-3.5 text-emerald-600" />
+                  Staff Verification:
+                </span>
+                <label className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold cursor-pointer transition-all select-none ${
+                  reconfirmCheckboxes.bed 
+                    ? 'bg-emerald-50 border-emerald-300 text-emerald-800 shadow-xs' 
+                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
+                }`}>
+                  <input
+                    type="checkbox"
+                    checked={reconfirmCheckboxes.bed}
+                    onChange={(e) => setReconfirmCheckboxes({ ...reconfirmCheckboxes, bed: e.target.checked })}
+                    className="rounded text-emerald-600 focus:ring-emerald-500 h-3.5 w-3.5"
+                  />
+                  <span>Bed / ICU Available</span>
+                </label>
+
+                <label className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold cursor-pointer transition-all select-none ${
+                  reconfirmCheckboxes.specialist 
+                    ? 'bg-emerald-50 border-emerald-300 text-emerald-800 shadow-xs' 
+                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
+                }`}>
+                  <input
+                    type="checkbox"
+                    checked={reconfirmCheckboxes.specialist}
+                    onChange={(e) => setReconfirmCheckboxes({ ...reconfirmCheckboxes, specialist: e.target.checked })}
+                    className="rounded text-emerald-600 focus:ring-emerald-500 h-3.5 w-3.5"
+                  />
+                  <span>Specialist On Duty</span>
+                </label>
+
+                <label className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold cursor-pointer transition-all select-none ${
+                  reconfirmCheckboxes.service 
+                    ? 'bg-emerald-50 border-emerald-300 text-emerald-800 shadow-xs' 
+                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
+                }`}>
+                  <input
+                    type="checkbox"
+                    checked={reconfirmCheckboxes.service}
+                    onChange={(e) => setReconfirmCheckboxes({ ...reconfirmCheckboxes, service: e.target.checked })}
+                    className="rounded text-emerald-600 focus:ring-emerald-500 h-3.5 w-3.5"
+                  />
+                  <span>Diagnostic / OT Ready</span>
+                </label>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center gap-2.5 shrink-0">
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  isLoading={isProcessingReferral}
+                  onClick={() => {
+                    const reason = prompt("Enter standardized decline reason:", "Required facility unavailable");
+                    if (reason) {
+                      setDeclineReason(reason);
+                      handleReferralAction('DECLINED');
+                    }
+                  }}
+                  className="font-medium"
+                >
+                  Decline Referral
+                </Button>
+                <Button
+                  variant="success"
+                  size="sm"
+                  isLoading={isProcessingReferral}
+                  disabled={!reconfirmCheckboxes.bed}
+                  onClick={() => handleReferralAction('ACCEPTED')}
+                  className="font-medium shadow-xs"
+                >
+                  Accept Patient Referral
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="w-full flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2">
+                <span className="text-slate-600 font-medium">Referral Status:</span>
+                <StatusBadge status={selectedReferral.status} />
+                {selectedReferral.declineReason && (
+                  <span className="text-rose-700 ml-2 font-medium">
+                    Reason: {selectedReferral.declineReason}
+                  </span>
+                )}
+                {selectedReferral.reconfirmedResources?.length > 0 && (
+                  <span className="text-emerald-700 ml-2">
+                    Verified: {selectedReferral.reconfirmedResources.join(' • ')}
+                  </span>
+                )}
+              </div>
+              <Button variant="secondary" size="sm" onClick={() => setSelectedReferral(null)}>
+                Close
+              </Button>
+            </div>
+          )
+        )}
       >
         {selectedReferral && (
-          <div className="space-y-4">
-            {/* AI Clinical Decision Intelligence Card */}
-            <div className="bg-teal-50/60 border border-teal-200 rounded-xl p-4 space-y-2.5">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-xs text-teal-900 flex items-center gap-1.5">
-                  <Brain className="w-4 h-4 text-teal-700" />
-                  AI Clinical Referral Assessment & Capacity Matching
-                </span>
-                {isLoadingAI ? (
-                  <span className="text-xs text-teal-700 animate-pulse font-semibold">Running Google Gemini AI Triage...</span>
-                ) : aiAnalysis ? (
-                  <div className="flex items-center space-x-2">
-                    <span className="text-[10px] text-teal-800 font-bold bg-white border border-teal-200 px-2 py-0.5 rounded">
-                      {aiAnalysis.aiModel || "Google Gemini"}
-                    </span>
-                    <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full ${
-                      aiAnalysis.urgencyLevel === 'CRITICAL' ? 'bg-emergency-600 text-white' :
-                      aiAnalysis.urgencyLevel === 'HIGH' ? 'bg-amber-500 text-white' :
-                      'bg-emerald-600 text-white'
-                    }`}>
-                      PRIORITY: {aiAnalysis.urgencyLevel}
-                    </span>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-stretch">
+            {/* Left Column: Patient Clinical Profile */}
+            <div className="bg-white p-4 rounded-xl border border-slate-200 text-xs space-y-3 shadow-xs flex flex-col justify-between">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                  <div className="flex items-center gap-1.5 font-bold text-slate-900 text-xs">
+                    <User className="w-4 h-4 text-brand-primary" />
+                    <span>Patient Clinical Profile</span>
                   </div>
-                ) : null}
-              </div>
-
-              {aiAnalysis && (
-                <div className="text-xs space-y-2 pt-1">
-                  <div>
-                    <strong className="text-slate-900">Clinical Assessment:</strong>
-                    <p className="text-slate-700 mt-0.5">{aiAnalysis.clinicalImpression}</p>
+                  <div className="text-[11px] text-slate-500">
+                    Ref: <span className="font-semibold text-slate-700">{selectedReferral.id}</span>
                   </div>
-
-                  <div className="bg-white p-3 rounded-lg border border-teal-100 text-xs space-y-1.5">
-                    <div>
-                      <strong className="text-slate-900">Facility Capacity Match:</strong>{' '}
-                      <span className={aiAnalysis.resourceMatchStatus === 'MATCHED' ? 'text-emerald-700 font-bold' : 'text-rose-700 font-bold'}>
-                        {aiAnalysis.resourceMatchExplanation}
-                      </span>
-                    </div>
-                    <div>
-                      <strong className="text-slate-900">AI Recommendation:</strong>{' '}
-                      <span className={`font-bold px-2 py-0.5 rounded text-[10px] ${
-                        aiAnalysis.recommendedAction === 'ACCEPT' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
-                      }`}>
-                        {aiAnalysis.recommendedAction === 'ACCEPT' ? 'RECOMMENDED TO ACCEPT' : 'REDIRECT ADVISED'}
-                      </span>
-                      <span className="text-slate-600 ml-1.5">({aiAnalysis.recommendationReason})</span>
-                    </div>
-                  </div>
-
-                  {aiAnalysis.immediatePreparation?.length > 0 && (
-                    <div>
-                      <strong className="text-slate-900 text-xs">Pre-Arrival Preparation Checklist:</strong>
-                      <ul className="list-disc list-inside text-xs text-slate-700 mt-1 space-y-0.5">
-                        {aiAnalysis.immediatePreparation.map((step, i) => (
-                          <li key={i}>{step}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
                 </div>
-              )}
-            </div>
 
-            {/* Patient Clinical Profile */}
-            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs space-y-2.5">
-              <div>
-                <strong className="text-slate-900">Referring Medical Unit:</strong> {selectedReferral.referringBHU} (Dr. {selectedReferral.bhuDoctorName})
+                <div>
+                  <strong className="text-slate-900 block text-xs mb-1">Referring Medical Unit:</strong>
+                  <div className="flex items-center justify-between bg-slate-50 p-2.5 rounded-lg border border-slate-200/80">
+                    <span className="text-slate-800 font-semibold">{selectedReferral.referringBHU}</span>
+                    <span className="text-[11px] font-semibold text-teal-800 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded">
+                      Dr. {selectedReferral.bhuDoctorName}
+                    </span>
+                  </div>
+                </div>
+
+                <div>
+                  <strong className="text-slate-900 block text-xs mb-1">Chief Symptoms & Presentation:</strong>
+                  <div className="bg-rose-50/40 p-2.5 rounded-lg border border-rose-100 text-slate-800 leading-relaxed">
+                    {selectedReferral.symptoms}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div className="bg-slate-50/70 p-2.5 rounded-lg border border-slate-200/70">
+                    <strong className="text-slate-900 block text-xs mb-0.5">Medical History:</strong>
+                    <p className="text-slate-700 leading-relaxed text-[11px]">{selectedReferral.medicalHistory || "None recorded"}</p>
+                  </div>
+                  <div className="bg-slate-50/70 p-2.5 rounded-lg border border-slate-200/70">
+                    <strong className="text-slate-900 block text-xs mb-0.5">Examination & Vitals:</strong>
+                    <p className="text-slate-700 leading-relaxed text-[11px]">{selectedReferral.currentCondition}</p>
+                  </div>
+                </div>
+
+                <div>
+                  <strong className="text-slate-900 block text-xs mb-1">Doctor's Clinical Notes:</strong>
+                  <p className="text-slate-700 italic bg-slate-50/60 p-2.5 rounded-lg border border-slate-200/70 leading-relaxed">
+                    "{selectedReferral.doctorNotes || "None"}"
+                  </p>
+                </div>
               </div>
-              <div>
-                <strong className="text-slate-900">Chief Symptoms & Presentation:</strong>
-                <p className="text-slate-700 mt-0.5">{selectedReferral.symptoms}</p>
-              </div>
-              <div>
-                <strong className="text-slate-900">Patient Medical History:</strong>
-                <p className="text-slate-700 mt-0.5">{selectedReferral.medicalHistory || "None recorded"}</p>
-              </div>
-              <div>
-                <strong className="text-slate-900">Clinical Examination & Vital Signs:</strong>
-                <p className="text-slate-700 mt-0.5">{selectedReferral.currentCondition}</p>
-              </div>
-              <div>
-                <strong className="text-slate-900">Doctor's Clinical Notes:</strong>
-                <p className="text-slate-700 italic mt-0.5">{selectedReferral.doctorNotes || "None"}</p>
-              </div>
-              <div>
-                <strong className="text-slate-900">Required Medical Services:</strong>
-                <div className="flex flex-wrap gap-1 mt-1">
+
+              <div className="pt-2 border-t border-slate-100 mt-2">
+                <strong className="text-slate-900 block text-xs mb-1">Required Medical Services:</strong>
+                <div className="flex flex-wrap gap-1.5">
                   {selectedReferral.requiredServices.map((s, i) => (
-                    <span key={i} className="bg-teal-50 text-teal-800 font-semibold px-2 py-0.5 rounded text-[11px] border border-teal-200">
+                    <span key={i} className="bg-teal-50 text-teal-800 font-semibold px-2.5 py-0.5 rounded text-[11px] border border-teal-200 shadow-xs">
                       {s}
                     </span>
                   ))}
@@ -2113,93 +2345,85 @@ export default function HospitalPortal() {
               </div>
             </div>
 
-            {/* Clinical Decision Action Section */}
-            {selectedReferral.status === 'PENDING' ? (
-              <div className="space-y-3.5 pt-1">
-                {/* Mandatory Re-confirmation Checklist per Design System Rules */}
-                <div className="p-4 bg-emerald-50/50 border border-emerald-200 rounded-xl text-xs space-y-2">
-                  <span className="font-bold text-emerald-800 block">
-                    Mandatory Resource Re-Confirmation Checklist
-                  </span>
-                  <p className="text-slate-600 text-[11px]">
-                    Before accepting, hospital staff must re-confirm that the required beds and specialists are currently operational:
-                  </p>
-                  <label className="flex items-center space-x-2 text-slate-800 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={reconfirmCheckboxes.bed}
-                      onChange={(e) => setReconfirmCheckboxes({ ...reconfirmCheckboxes, bed: e.target.checked })}
-                      className="rounded text-emerald-600 focus:ring-emerald-500"
-                    />
-                    <span>Re-confirm Bed / ICU availability</span>
-                  </label>
-                  <label className="flex items-center space-x-2 text-slate-800 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={reconfirmCheckboxes.specialist}
-                      onChange={(e) => setReconfirmCheckboxes({ ...reconfirmCheckboxes, specialist: e.target.checked })}
-                      className="rounded text-emerald-600 focus:ring-emerald-500"
-                    />
-                    <span>Re-confirm Specialist clinician on duty</span>
-                  </label>
-                  <label className="flex items-center space-x-2 text-slate-800 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={reconfirmCheckboxes.service}
-                      onChange={(e) => setReconfirmCheckboxes({ ...reconfirmCheckboxes, service: e.target.checked })}
-                      className="rounded text-emerald-600 focus:ring-emerald-500"
-                    />
-                    <span>Re-confirm Diagnostic & OT service readiness</span>
-                  </label>
+            {/* Right Column: AI Clinical Decision Intelligence */}
+            <div className="bg-white p-4 rounded-xl border border-slate-200 text-xs space-y-3 shadow-xs flex flex-col justify-between">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                  <div className="flex items-center gap-1.5 font-bold text-slate-900 text-xs">
+                    <Brain className="w-4 h-4 text-teal-600" />
+                    <span>AI Clinical Assessment & Capacity</span>
+                  </div>
+                  {isLoadingAI ? (
+                    <span className="text-xs text-teal-700 animate-pulse font-semibold">Analyzing...</span>
+                  ) : aiAnalysis ? (
+                    <div className="flex items-center space-x-1.5">
+                      <span className="text-[10px] text-teal-800 font-bold bg-teal-50 border border-teal-200 px-2 py-0.5 rounded">
+                        {aiAnalysis.aiModel || "Gemini 1.5"}
+                      </span>
+                      <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full ${
+                        aiAnalysis.urgencyLevel === 'CRITICAL' ? 'bg-emergency-600 text-white' :
+                        aiAnalysis.urgencyLevel === 'HIGH' ? 'bg-amber-500 text-white' :
+                        'bg-emerald-600 text-white'
+                      }`}>
+                        PRIORITY: {aiAnalysis.urgencyLevel}
+                      </span>
+                    </div>
+                  ) : null}
                 </div>
 
-                <div className="flex space-x-3 pt-1">
-                  <Button
-                    variant="success"
-                    size="md"
-                    isLoading={isProcessingReferral}
-                    disabled={!reconfirmCheckboxes.bed}
-                    onClick={() => handleReferralAction('ACCEPTED')}
-                    className="flex-1"
-                  >
-                    Accept Patient Referral
-                  </Button>
+                {aiAnalysis && (
+                  <>
+                    {/* Recommendation Card */}
+                    <div className={`p-2.5 rounded-lg border flex items-center justify-between ${
+                      aiAnalysis.recommendedAction === 'ACCEPT' 
+                        ? 'bg-emerald-50/70 border-emerald-200 text-emerald-950' 
+                        : 'bg-rose-50/70 border-rose-200 text-rose-950'
+                    }`}>
+                      <div className="flex items-center gap-2">
+                        <CheckCircle2 className={`w-4 h-4 shrink-0 ${aiAnalysis.recommendedAction === 'ACCEPT' ? 'text-emerald-600' : 'text-rose-600'}`} />
+                        <div>
+                          <div className="font-bold text-xs">
+                            {aiAnalysis.recommendedAction === 'ACCEPT' ? 'Recommendation: Accept Referral' : 'Recommendation: Redirect Advised'}
+                          </div>
+                          <div className="text-[11px] text-slate-600">{aiAnalysis.recommendationReason}</div>
+                        </div>
+                      </div>
+                    </div>
 
-                  <Button
-                    variant="destructive"
-                    size="md"
-                    isLoading={isProcessingReferral}
-                    onClick={() => {
-                      const reason = prompt("Enter standardized decline reason:", "Required facility unavailable");
-                      if (reason) {
-                        setDeclineReason(reason);
-                        handleReferralAction('DECLINED');
-                      }
-                    }}
-                    className="flex-1"
-                  >
-                    Decline Referral
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <div className="p-4 rounded-xl bg-slate-50 text-xs space-y-1.5 border border-slate-200">
-                <div className="flex items-center gap-2">
-                  <strong>Referral Status:</strong>
-                  <StatusBadge status={selectedReferral.status} />
-                </div>
-                {selectedReferral.declineReason && (
-                  <div className="text-rose-700 mt-1">
-                    <strong>Decline Rationale:</strong> {selectedReferral.declineReason}
-                  </div>
+                    {/* Clinical Assessment */}
+                    <div>
+                      <strong className="text-slate-900 block text-xs mb-0.5">Clinical Assessment:</strong>
+                      <p className="text-slate-700 leading-relaxed bg-slate-50/70 p-2.5 rounded-lg border border-slate-200/70">
+                        {aiAnalysis.clinicalImpression}
+                      </p>
+                    </div>
+
+                    {/* Hospital Capacity Match */}
+                    <div className="bg-slate-50/70 p-2.5 rounded-lg border border-slate-200/70 space-y-0.5">
+                      <strong className="text-slate-900 block text-xs">Hospital Capacity Match:</strong>
+                      <p className={`text-[11px] font-medium leading-relaxed ${aiAnalysis.resourceMatchStatus === 'MATCHED' ? 'text-emerald-700' : 'text-rose-700'}`}>
+                        {aiAnalysis.resourceMatchExplanation}
+                      </p>
+                    </div>
+
+                    {/* Pre-Arrival Preparation Steps */}
+                    {aiAnalysis.immediatePreparation?.length > 0 && (
+                      <div>
+                        <strong className="text-slate-900 block text-xs mb-1">Pre-Arrival Action Protocol:</strong>
+                        <ul className="space-y-1 text-slate-700 bg-slate-50/50 p-2 rounded-lg border border-slate-200/60">
+                          {aiAnalysis.immediatePreparation.map((step, i) => (
+                            <li key={i} className="flex items-start gap-1.5 text-[11px]">
+                              <span className="w-1.5 h-1.5 rounded-full bg-teal-600 shrink-0 mt-1.5" />
+                              <span className="leading-snug">{step}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </>
                 )}
-                {selectedReferral.reconfirmedResources?.length > 0 && (
-                  <div className="text-emerald-700 mt-1">
-                    <strong>Re-confirmed by Staff:</strong> {selectedReferral.reconfirmedResources.join(' • ')}
-                  </div>
-                )}
               </div>
-            )}
+            </div>
           </div>
         )}
       </Modal>
@@ -2211,102 +2435,172 @@ export default function HospitalPortal() {
         isOpen={Boolean(selectedAlert)}
         onClose={() => setSelectedAlert(null)}
         title="Rescue 1122 Pre-Arrival Bay Mobilization"
-        description={selectedAlert ? `Case ID: ${selectedAlert.rescueCaseId} • Ambulance ${selectedAlert.ambulanceId}` : ''}
-        maxWidth="max-w-lg"
+        description={selectedAlert ? `Case ID: ${selectedAlert.rescueCaseId} • Ambulance ${selectedAlert.ambulanceId} • Target: ${hospital?.name || 'Emergency Department'}` : ''}
+        maxWidth="max-w-5xl xl:max-w-6xl"
       >
         {selectedAlert && (
-          <div className="space-y-4">
-            {/* AI Trauma Advisory */}
-            {aiTraumaAdvice && (
-              <div className="bg-teal-50/60 p-4 rounded-xl border border-teal-200 text-xs space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-teal-900 flex items-center gap-1.5">
-                    <Brain className="w-4 h-4 text-teal-700" />
-                    AI Trauma Clinical Advisory
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
+            {/* Left Column: Emergency Event Info & Action Controls (5 cols) */}
+            <div className="lg:col-span-5 flex flex-col justify-between space-y-3.5">
+              {/* Emergency Inbound Case Card */}
+              <div className="bg-rose-50/60 p-3.5 rounded-xl border border-rose-200/80 text-xs space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="font-bold text-rose-950 text-sm leading-tight">
+                    {selectedAlert.emergencyType}
+                  </div>
+                  <span className="bg-emergency-600 text-white font-bold text-xs px-2.5 py-0.5 rounded-full shrink-0 shadow-sm animate-pulse">
+                    ETA: {selectedAlert.etaMinutes}m
                   </span>
-                  <span className="bg-emergency-600 text-white font-bold text-[10px] px-2 py-0.5 rounded">
-                    {aiTraumaAdvice.code}
-                  </span>
                 </div>
-                <div className="text-slate-800">
-                  <strong>Anticipated Acuity:</strong> {aiTraumaAdvice.primaryRisk}
+
+                <div className="text-slate-600 flex items-center gap-1.5 text-[11px]">
+                  <Ambulance className="w-3.5 h-3.5 text-emergency-600 shrink-0" />
+                  <span>Ambulance: <strong className="text-slate-800">{selectedAlert.ambulanceId}</strong></span>
+                  {selectedAlert.location && (
+                    <>
+                      <span className="text-slate-300">•</span>
+                      <MapPin className="w-3 h-3 text-emergency-600 shrink-0" />
+                      <span className="truncate max-w-[140px]" title={selectedAlert.location}>{selectedAlert.location}</span>
+                    </>
+                  )}
                 </div>
-                <div className="text-slate-600">
-                  {aiTraumaAdvice.bedNotice}
+
+                <div className="bg-white/80 p-2.5 rounded-lg border border-rose-100 text-[11px] leading-relaxed text-slate-800">
+                  <strong className="text-rose-900 block font-semibold mb-0.5">Paramedic Vitals & Field Report:</strong>
+                  {selectedAlert.vitals}
                 </div>
-                <div className="pt-1">
-                  <strong className="text-slate-900 text-xs">AI Bay Preparation Checklist:</strong>
-                  <ul className="list-disc list-inside text-slate-700 mt-1 space-y-0.5">
-                    {aiTraumaAdvice.bayChecklist?.map((step, i) => (
-                      <li key={i}>{step}</li>
+
+                <div>
+                  <strong className="text-slate-700 block font-semibold text-[11px] mb-1">Required Facilities:</strong>
+                  <div className="flex flex-wrap gap-1">
+                    {selectedAlert.requiredFacilities.map((fac, idx) => (
+                      <span key={idx} className="bg-white text-rose-900 border border-rose-200 font-semibold px-2 py-0.5 rounded text-[10px]">
+                        {fac}
+                      </span>
                     ))}
-                  </ul>
+                  </div>
                 </div>
               </div>
-            )}
 
-            <div className="bg-rose-50/40 p-4 rounded-xl border border-rose-200 text-xs space-y-1.5">
-              <div><strong>Emergency Event:</strong> {selectedAlert.emergencyType}</div>
-              <div><strong>ETA:</strong> <span className="font-bold text-emergency-600">{selectedAlert.etaMinutes} minutes</span> ({selectedAlert.ambulanceId})</div>
-              <div><strong>Paramedic Vitals:</strong> {selectedAlert.vitals}</div>
-              <div><strong>Required Facilities:</strong> {selectedAlert.requiredFacilities.join(', ')}</div>
-            </div>
+              {/* Trauma Bay Assignment */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-typography-primary block">Assign Inbound Trauma Bay:</label>
+                <select
+                  value={assignedBay}
+                  onChange={(e) => setAssignedBay(e.target.value)}
+                  className="w-full p-2 border border-slate-200 rounded-lg text-xs font-semibold bg-white focus:outline-none focus:ring-2 focus:ring-brand-primary/20"
+                >
+                  <option value="Trauma Bay 1 (Resuscitation)">Trauma Bay 1 (Resuscitation & Airway)</option>
+                  <option value="Trauma Bay 2 (Shock Room)">Trauma Bay 2 (Shock Room)</option>
+                  <option value="Emergency OT 1 (Acute Surgical)">Emergency OT 1 (Acute Surgical)</option>
+                  <option value="Cardiac Cath Bay (STEMI Rapid)">Cardiac Cath Bay (STEMI Rapid)</option>
+                </select>
+              </div>
 
-            {/* Trauma Bay Assignment */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-typography-primary block">Assign Inbound Trauma Bay:</label>
-              <select
-                value={assignedBay}
-                onChange={(e) => setAssignedBay(e.target.value)}
-                className="w-full p-2 border border-slate-200 rounded-lg text-xs font-semibold bg-white focus:outline-none focus:ring-2 focus:ring-brand-primary/20"
+              {/* Readiness Confirmation Checklist */}
+              <div className="space-y-1.5 text-xs">
+                <span className="font-bold text-typography-primary block">Confirm Bay Mobilization:</span>
+                <div className="space-y-1">
+                  <label className="flex items-center space-x-2 text-slate-700 cursor-pointer bg-slate-50 p-1.5 rounded-lg border border-slate-200/70 hover:bg-slate-100/70 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={confirmEmergencyFacilities.traumaBay}
+                      onChange={(e) => setConfirmEmergencyFacilities({ ...confirmEmergencyFacilities, traumaBay: e.target.checked })}
+                      className="rounded text-emergency-600 focus:ring-emergency-500"
+                    />
+                    <span className="font-medium text-[11px]">Trauma Bay & Resuscitation stretcher ready</span>
+                  </label>
+                  <label className="flex items-center space-x-2 text-slate-700 cursor-pointer bg-slate-50 p-1.5 rounded-lg border border-slate-200/70 hover:bg-slate-100/70 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={confirmEmergencyFacilities.ventilator}
+                      onChange={(e) => setConfirmEmergencyFacilities({ ...confirmEmergencyFacilities, ventilator: e.target.checked })}
+                      className="rounded text-emergency-600 focus:ring-emergency-500"
+                    />
+                    <span className="font-medium text-[11px]">Ventilator & Rapid Intubation team alerted</span>
+                  </label>
+                  <label className="flex items-center space-x-2 text-slate-700 cursor-pointer bg-slate-50 p-1.5 rounded-lg border border-slate-200/70 hover:bg-slate-100/70 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={confirmEmergencyFacilities.bloodBank}
+                      onChange={(e) => setConfirmEmergencyFacilities({ ...confirmEmergencyFacilities, bloodBank: e.target.checked })}
+                      className="rounded text-emergency-600 focus:ring-emergency-500"
+                    />
+                    <span className="font-medium text-[11px]">Blood Bank alerted (O- PRBC & MTP standby)</span>
+                  </label>
+                  <label className="flex items-center space-x-2 text-slate-700 cursor-pointer bg-slate-50 p-1.5 rounded-lg border border-slate-200/70 hover:bg-slate-100/70 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={confirmEmergencyFacilities.surgicalTeam}
+                      onChange={(e) => setConfirmEmergencyFacilities({ ...confirmEmergencyFacilities, surgicalTeam: e.target.checked })}
+                      className="rounded text-emergency-600 focus:ring-emergency-500"
+                    />
+                    <span className="font-medium text-[11px]">On-Call Surgical & Specialist Team on Standby</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Primary Action Button */}
+              <Button
+                variant="destructive"
+                size="md"
+                isLoading={isProcessingAlert}
+                onClick={handleAcknowledgeAlert}
+                className="w-full font-bold shadow-sm"
               >
-                <option value="Trauma Bay 1 (Resuscitation)">Trauma Bay 1 (Resuscitation & Airway)</option>
-                <option value="Trauma Bay 2 (Shock Room)">Trauma Bay 2 (Shock Room)</option>
-                <option value="Emergency OT 1 (Acute Surgical)">Emergency OT 1 (Acute Surgical)</option>
-                <option value="Cardiac Cath Bay (STEMI Rapid)">Cardiac Cath Bay (STEMI Rapid)</option>
-              </select>
+                Transmit Bay Readiness to Ambulance
+              </Button>
             </div>
 
-            <div className="space-y-2 text-xs">
-              <span className="font-bold text-typography-primary block">Confirm Emergency Readiness:</span>
-              <label className="flex items-center space-x-2 text-slate-700 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={confirmEmergencyFacilities.traumaBay}
-                  onChange={(e) => setConfirmEmergencyFacilities({ ...confirmEmergencyFacilities, traumaBay: e.target.checked })}
-                  className="rounded text-emergency-600 focus:ring-emergency-500"
-                />
-                <span>Trauma Bay & Resuscitation stretcher prepared</span>
-              </label>
-              <label className="flex items-center space-x-2 text-slate-700 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={confirmEmergencyFacilities.ventilator}
-                  onChange={(e) => setConfirmEmergencyFacilities({ ...confirmEmergencyFacilities, ventilator: e.target.checked })}
-                  className="rounded text-emergency-600 focus:ring-emergency-500"
-                />
-                <span>Ventilator & Rapid Intubation airway team alerted</span>
-              </label>
-              <label className="flex items-center space-x-2 text-slate-700 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={confirmEmergencyFacilities.bloodBank}
-                  onChange={(e) => setConfirmEmergencyFacilities({ ...confirmEmergencyFacilities, bloodBank: e.target.checked })}
-                  className="rounded text-emergency-600 focus:ring-emergency-500"
-                />
-                <span>Regional blood bank notified for rapid cross-match</span>
-              </label>
-            </div>
+            {/* Right Column: AI Trauma Clinical Advisory (7 cols) */}
+            <div className="lg:col-span-7 flex flex-col">
+              {aiTraumaAdvice ? (
+                <div className="bg-teal-50/60 p-4 rounded-xl border border-teal-200 text-xs space-y-3 flex flex-col h-full">
+                  <div className="flex items-center justify-between pb-2 border-b border-teal-200/70">
+                    <span className="font-bold text-teal-950 flex items-center gap-1.5 text-sm">
+                      <Brain className="w-4 h-4 text-teal-700" />
+                      AI Trauma Clinical Advisory
+                    </span>
+                    <span className="bg-emergency-600 text-white font-bold text-[10px] px-2 py-0.5 rounded shadow-sm">
+                      {aiTraumaAdvice.code}
+                    </span>
+                  </div>
 
-            <Button
-              variant="destructive"
-              size="md"
-              isLoading={isProcessingAlert}
-              onClick={handleAcknowledgeAlert}
-              className="w-full"
-            >
-              Transmit Bay Readiness to Ambulance
-            </Button>
+                  <div className="bg-white/90 p-2.5 rounded-lg border border-teal-100 space-y-1">
+                    <div className="text-slate-900 text-xs">
+                      <strong>Anticipated Acuity:</strong> <span className="font-semibold text-rose-700">{aiTraumaAdvice.primaryRisk}</span>
+                    </div>
+                    <div className="text-slate-600 text-[11px]">
+                      {aiTraumaAdvice.bedNotice}
+                    </div>
+                  </div>
+
+                  <div className="flex-1 space-y-1.5">
+                    <strong className="text-teal-950 text-xs flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-teal-700" />
+                      AI Bay Preparation Checklist (ATLS Protocol):
+                    </strong>
+                    <ul className="space-y-1.5 text-slate-800">
+                      {aiTraumaAdvice.bayChecklist?.map((step, i) => (
+                        <li key={i} className="flex items-start gap-2 bg-white/80 p-1.5 rounded border border-teal-100/70 text-[11px]">
+                          <span className="w-4 h-4 rounded-full bg-teal-100 text-teal-800 font-bold flex items-center justify-center text-[10px] shrink-0 mt-0.5">
+                            {i + 1}
+                          </span>
+                          <span className="leading-snug">{step}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-center h-full p-8 text-center text-slate-400 bg-slate-50/70 rounded-xl border border-dashed border-slate-200">
+                  <div className="space-y-2">
+                    <Brain className="w-8 h-8 text-slate-300 mx-auto animate-pulse" />
+                    <p className="text-xs">Analyzing trauma acuity & bay protocols...</p>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </Modal>

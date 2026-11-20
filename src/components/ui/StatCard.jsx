@@ -38,7 +38,7 @@ export default function StatCard({
       progressBar: 'bg-amber-500',
     },
     critical: {
-      card: 'bg-rose-50/50 border-rose-200 hover:border-rose-300 ring-1 ring-rose-200/60',
+      card: 'bg-white border-rose-200 hover:border-rose-300 ring-1 ring-rose-200/60',
       iconBox: 'bg-rose-100 text-rose-700 border border-rose-200',
       value: 'text-rose-700',
       progressBar: 'bg-rose-600',

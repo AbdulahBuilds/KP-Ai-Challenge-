@@ -49,7 +49,7 @@ export async function POST(request) {
         hospital = await dataStore.getHospitalById(alertData.targetHospitalId);
       }
 
-      const aiAdvice = generateEmergencyTraumaAIAdvice({
+      const aiAdvice = await generateEmergencyTraumaAIAdvice({
         alert: alertData,
         hospitalResources: hospital?.resources || {}
       });

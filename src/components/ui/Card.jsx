@@ -52,7 +52,7 @@ export function CardContent({ children, className = '', ...props }) {
 
 export function CardFooter({ children, className = '', ...props }) {
   return (
-    <div className={`p-4 pt-3 border-t border-surface-border/60 bg-surface-main/50 rounded-b-xl ${className}`} {...props}>
+    <div className={`p-4 pt-3 border-t border-surface-border/60 bg-white rounded-b-xl ${className}`} {...props}>
       {children}
     </div>
   );

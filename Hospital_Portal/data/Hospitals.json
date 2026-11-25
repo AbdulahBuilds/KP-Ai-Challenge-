@@ -1,0 +1,668 @@
+{
+  "generatedAt": "2026-11-24T16:41:05.441Z",
+  "source": "Hospital_Portal/src/lib/seedData.js",
+  "catalogVersion": "2026-11-13.1",
+  "count": 4,
+  "hospitals": [
+    {
+      "id": "lrh-peshawar",
+      "externalId": "lrh-peshawar",
+      "name": "Lady Reading Hospital (LRH)",
+      "address": "GT Road, Soekarno Chowk, Peshawar, Khyber Pakhtunkhwa",
+      "city": "Peshawar",
+      "latitude": 34.0106,
+      "longitude": 71.5688,
+      "locationSource": "OpenStreetMap / Google Maps verified 2026-11-24",
+      "phone": "+92-91-9211440",
+      "services": [
+        "emergency",
+        "icu",
+        "operationTheatre",
+        "laboratory",
+        "bloodBank",
+        "radiology",
+        "dialysis"
+      ],
+      "resources": {
+        "availableBeds": 142,
+        "icuBeds": 7,
+        "services": {
+          "emergency": "Available",
+          "icu": "Available",
+          "operationTheatre": "Available",
+          "laboratory": "Available",
+          "bloodBank": "Available",
+          "radiology": "Available",
+          "dialysis": "Available",
+          "updatedAt": "2026-11-24T16:11:05.438Z"
+        }
+      },
+      "capabilities": [
+        {
+          "code": "SERVICE_EMERGENCY_DEPARTMENT",
+          "status": "AVAILABLE",
+          "quantity": null
+        },
+        {
+          "code": "BED_EMERGENCY",
+          "status": "AVAILABLE",
+          "quantity": 142,
+          "note": "general beds"
+        },
+        {
+          "code": "BED_ICU",
+          "status": "AVAILABLE",
+          "quantity": 7,
+          "note": "ICU beds"
+        },
+        {
+          "code": "EQUIP_VENTILATOR",
+          "status": "AVAILABLE",
+          "quantity": 6,
+          "note": "ventilators units"
+        },
+        {
+          "code": "EQUIP_CT_SCANNER",
+          "status": "AVAILABLE",
+          "quantity": 3,
+          "note": "ctScan units"
+        },
+        {
+          "code": "EQUIP_MRI",
+          "status": "AVAILABLE",
+          "quantity": 1,
+          "note": "mri units"
+        },
+        {
+          "code": "EQUIP_XRAY",
+          "status": "AVAILABLE",
+          "quantity": 8,
+          "note": "xray units"
+        },
+        {
+          "code": "EQUIP_DIALYSIS",
+          "status": "AVAILABLE",
+          "quantity": 5,
+          "note": "dialysis units"
+        },
+        {
+          "code": "SURGICAL_OPERATING_ROOM",
+          "status": "AVAILABLE",
+          "quantity": null
+        },
+        {
+          "code": "SURGICAL_MAJOR_EQUIPMENT",
+          "status": "AVAILABLE",
+          "quantity": null
+        },
+        {
+          "code": "EQUIP_BLOOD_BANK",
+          "status": "AVAILABLE",
+          "quantity": null
+        },
+        {
+          "code": "SPECIALIST_CARDIOLOGY",
+          "status": "AVAILABLE",
+          "quantity": null,
+          "note": "Prof. Dr. Tariq Parvez"
+        },
+        {
+          "code": "SPECIALIST_ORTHOPEDICS",
+          "status": "AVAILABLE",
+          "quantity": null,
+          "note": "Dr. Shahzad Ali Bangash"
+        },
+        {
+          "code": "SPECIALIST_GENERAL_SURGERY",
+          "status": "AVAILABLE",
+          "quantity": null,
+          "note": "Dr. Farooq Shah"
+        },
+        {
+          "code": "SPECIALIST_NEUROSURGERY",
+          "status": "AVAILABLE",
+          "quantity": null,
+          "note": "Dr. Imran Khan Khattak"
+        },
+        {
+          "code": "SPECIALIST_OBSTETRICS",
+          "status": "AVAILABLE",
+          "quantity": null,
+          "note": "Dr. Samina Rehman"
+        },
+        {
+          "code": "SPECIALIST_PEDIATRICS",
+          "status": "AVAILABLE",
+          "quantity": null,
+          "note": "Dr. Babar Qureshi"
+        },
+        {
+          "code": "SPECIALIST_ANESTHESIOLOGY",
+          "status": "AVAILABLE",
+          "quantity": null,
+          "note": "Dr. Noman Akhtar"
+        },
+        {
+          "code": "BLOOD_O_NEG",
+          "status": "AVAILABLE",
+          "quantity": 14,
+          "note": "O- units"
+        },
+        {
+          "code": "BLOOD_O_POS",
+          "status": "AVAILABLE",
+          "quantity": 59,
+          "note": "O+ units"
+        },
+        {
+          "code": "BLOOD_A_POS",
+          "status": "AVAILABLE",
+          "quantity": 36,
+          "note": "A+ units"
+        },
+        {
+          "code": "BLOOD_B_POS",
+          "status": "AVAILABLE",
+          "quantity": 47,
+          "note": "B+ units"
+        }
+      ],
+      "lastOverallUpdate": "2026-11-24T16:16:05.438Z"
+    },
+    {
+      "id": "hmc-peshawar",
+      "externalId": "hmc-peshawar",
+      "name": "Hayatabad Medical Complex (HMC)",
+      "address": "Phase 4, Hayatabad, Peshawar, Khyber Pakhtunkhwa",
+      "city": "Peshawar",
+      "latitude": 33.9925,
+      "longitude": 71.4497,
+      "locationSource": "OpenStreetMap / Google Maps verified 2026-11-24",
+      "phone": "+92-91-9217150",
+      "services": [
+        "emergency",
+        "icu",
+        "operationTheatre",
+        "laboratory",
+        "bloodBank",
+        "radiology",
+        "dialysis"
+      ],
+      "resources": {
+        "availableBeds": 115,
+        "icuBeds": 5,
+        "services": {
+          "emergency": "Available",
+          "icu": "Available",
+          "operationTheatre": "Available",
+          "laboratory": "Available",
+          "bloodBank": "Available",
+          "radiology": "Available",
+          "dialysis": "Available",
+          "updatedAt": "2026-11-24T16:21:05.438Z"
+        }
+      },
+      "capabilities": [
+        {
+          "code": "SERVICE_EMERGENCY_DEPARTMENT",
+          "status": "AVAILABLE",
+          "quantity": null
+        },
+        {
+          "code": "BED_EMERGENCY",
+          "status": "AVAILABLE",
+          "quantity": 115,
+          "note": "general beds"
+        },
+        {
+          "code": "BED_ICU",
+          "status": "AVAILABLE",
+          "quantity": 5,
+          "note": "ICU beds"
+        },
+        {
+          "code": "EQUIP_VENTILATOR",
+          "status": "AVAILABLE",
+          "quantity": 4,
+          "note": "ventilators units"
+        },
+        {
+          "code": "EQUIP_CT_SCANNER",
+          "status": "AVAILABLE",
+          "quantity": 2,
+          "note": "ctScan units"
+        },
+        {
+          "code": "EQUIP_MRI",
+          "status": "AVAILABLE",
+          "quantity": 1,
+          "note": "mri units"
+        },
+        {
+          "code": "EQUIP_XRAY",
+          "status": "AVAILABLE",
+          "quantity": 6,
+          "note": "xray units"
+        },
+        {
+          "code": "EQUIP_DIALYSIS",
+          "status": "AVAILABLE",
+          "quantity": 4,
+          "note": "dialysis units"
+        },
+        {
+          "code": "SURGICAL_OPERATING_ROOM",
+          "status": "AVAILABLE",
+          "quantity": null
+        },
+        {
+          "code": "SURGICAL_MAJOR_EQUIPMENT",
+          "status": "AVAILABLE",
+          "quantity": null
+        },
+        {
+          "code": "EQUIP_BLOOD_BANK",
+          "status": "AVAILABLE",
+          "quantity": null
+        },
+        {
+          "code": "SPECIALIST_CARDIOLOGY",
+          "status": "AVAILABLE",
+          "quantity": null,
+          "note": "Dr. Waqar Ahmad"
+        },
+        {
+          "code": "SPECIALIST_ORTHOPEDICS",
+          "status": "AVAILABLE",
+          "quantity": null,
+          "note": "Dr. Zahid Gul"
+        },
+        {
+          "code": "SPECIALIST_GENERAL_SURGERY",
+          "status": "AVAILABLE",
+          "quantity": null,
+          "note": "Dr. Arif Bilal"
+        },
+        {
+          "code": "SPECIALIST_NEUROSURGERY",
+          "status": "UNAVAILABLE",
+          "quantity": null,
+          "note": "Dr. Mumtaz Ali"
+        },
+        {
+          "code": "SPECIALIST_OBSTETRICS",
+          "status": "AVAILABLE",
+          "quantity": null,
+          "note": "Dr. Nuzhat Parveen"
+        },
+        {
+          "code": "SPECIALIST_PEDIATRICS",
+          "status": "AVAILABLE",
+          "quantity": null,
+          "note": "Dr. Rizwan Khan"
+        },
+        {
+          "code": "SPECIALIST_ANESTHESIOLOGY",
+          "status": "AVAILABLE",
+          "quantity": null,
+          "note": "Dr. Jamila Bibi"
+        },
+        {
+          "code": "BLOOD_O_NEG",
+          "status": "AVAILABLE",
+          "quantity": 10,
+          "note": "O- units"
+        },
+        {
+          "code": "BLOOD_O_POS",
+          "status": "AVAILABLE",
+          "quantity": 44,
+          "note": "O+ units"
+        },
+        {
+          "code": "BLOOD_A_POS",
+          "status": "AVAILABLE",
+          "quantity": 25,
+          "note": "A+ units"
+        },
+        {
+          "code": "BLOOD_B_POS",
+          "status": "AVAILABLE",
+          "quantity": 35,
+          "note": "B+ units"
+        }
+      ],
+      "lastOverallUpdate": "2026-11-24T16:26:05.438Z"
+    },
+    {
+      "id": "ath-abbottabad",
+      "externalId": "ath-abbottabad",
+      "name": "Ayub Teaching Hospital (ATH)",
+      "address": "Karakoram Highway, Abbottabad, Khyber Pakhtunkhwa",
+      "city": "Abbottabad",
+      "latitude": 34.2043,
+      "longitude": 73.2385,
+      "locationSource": "Wikipedia / OpenStreetMap verified 2026-11-24",
+      "phone": "+92-992-381910",
+      "services": [
+        "emergency",
+        "icu",
+        "operationTheatre",
+        "laboratory",
+        "bloodBank",
+        "radiology",
+        "dialysis"
+      ],
+      "resources": {
+        "availableBeds": 88,
+        "icuBeds": 3,
+        "services": {
+          "emergency": "Available",
+          "icu": "Available",
+          "operationTheatre": "Available",
+          "laboratory": "Available",
+          "bloodBank": "Available",
+          "radiology": "Available",
+          "dialysis": "Available",
+          "updatedAt": "2026-11-24T02:41:05.439Z"
+        }
+      },
+      "capabilities": [
+        {
+          "code": "SERVICE_EMERGENCY_DEPARTMENT",
+          "status": "AVAILABLE",
+          "quantity": null
+        },
+        {
+          "code": "BED_EMERGENCY",
+          "status": "AVAILABLE",
+          "quantity": 88,
+          "note": "general beds"
+        },
+        {
+          "code": "BED_ICU",
+          "status": "AVAILABLE",
+          "quantity": 3,
+          "note": "ICU beds"
+        },
+        {
+          "code": "EQUIP_VENTILATOR",
+          "status": "AVAILABLE",
+          "quantity": 2,
+          "note": "ventilators units"
+        },
+        {
+          "code": "EQUIP_CT_SCANNER",
+          "status": "AVAILABLE",
+          "quantity": 1,
+          "note": "ctScan units"
+        },
+        {
+          "code": "EQUIP_MRI",
+          "status": "AVAILABLE",
+          "quantity": 1,
+          "note": "mri units"
+        },
+        {
+          "code": "EQUIP_XRAY",
+          "status": "AVAILABLE",
+          "quantity": 4,
+          "note": "xray units"
+        },
+        {
+          "code": "EQUIP_DIALYSIS",
+          "status": "AVAILABLE",
+          "quantity": 2,
+          "note": "dialysis units"
+        },
+        {
+          "code": "SURGICAL_OPERATING_ROOM",
+          "status": "AVAILABLE",
+          "quantity": null
+        },
+        {
+          "code": "SURGICAL_MAJOR_EQUIPMENT",
+          "status": "AVAILABLE",
+          "quantity": null
+        },
+        {
+          "code": "EQUIP_BLOOD_BANK",
+          "status": "AVAILABLE",
+          "quantity": null
+        },
+        {
+          "code": "SPECIALIST_CARDIOLOGY",
+          "status": "AVAILABLE",
+          "quantity": null,
+          "note": "Dr. Sajjad Ahmad"
+        },
+        {
+          "code": "SPECIALIST_ORTHOPEDICS",
+          "status": "AVAILABLE",
+          "quantity": null,
+          "note": "Dr. Naseer Ahmad"
+        },
+        {
+          "code": "SPECIALIST_GENERAL_SURGERY",
+          "status": "AVAILABLE",
+          "quantity": null,
+          "note": "Dr. Fazal Rabi"
+        },
+        {
+          "code": "SPECIALIST_NEUROSURGERY",
+          "status": "UNAVAILABLE",
+          "quantity": null,
+          "note": "Dr. Abdul Haseeb"
+        },
+        {
+          "code": "SPECIALIST_OBSTETRICS",
+          "status": "AVAILABLE",
+          "quantity": null,
+          "note": "Dr. Rubina Shaheen"
+        },
+        {
+          "code": "SPECIALIST_PEDIATRICS",
+          "status": "AVAILABLE",
+          "quantity": null,
+          "note": "Dr. Tariq Niazi"
+        },
+        {
+          "code": "SPECIALIST_ANESTHESIOLOGY",
+          "status": "AVAILABLE",
+          "quantity": null,
+          "note": "Dr. Sohail Khan"
+        },
+        {
+          "code": "BLOOD_O_NEG",
+          "status": "AVAILABLE",
+          "quantity": 6,
+          "note": "O- units"
+        },
+        {
+          "code": "BLOOD_O_POS",
+          "status": "AVAILABLE",
+          "quantity": 32,
+          "note": "O+ units"
+        },
+        {
+          "code": "BLOOD_A_POS",
+          "status": "AVAILABLE",
+          "quantity": 20,
+          "note": "A+ units"
+        },
+        {
+          "code": "BLOOD_B_POS",
+          "status": "AVAILABLE",
+          "quantity": 26,
+          "note": "B+ units"
+        }
+      ],
+      "lastOverallUpdate": "2026-11-24T02:41:05.439Z"
+    },
+    {
+      "id": "dhq-mardan",
+      "externalId": "dhq-mardan",
+      "name": "DHQ Teaching Hospital Mardan",
+      "address": "Bank Road, Mardan, Khyber Pakhtunkhwa",
+      "city": "Mardan",
+      "latitude": 34.1911,
+      "longitude": 72.0457,
+      "locationSource": "Google Maps verified 2026-11-24",
+      "phone": "+92-937-9230220",
+      "services": [
+        "emergency",
+        "icu",
+        "operationTheatre",
+        "laboratory",
+        "bloodBank",
+        "radiology",
+        "dialysis"
+      ],
+      "resources": {
+        "availableBeds": 45,
+        "icuBeds": 2,
+        "services": {
+          "emergency": "Available",
+          "icu": "Available",
+          "operationTheatre": "Available",
+          "laboratory": "Available",
+          "bloodBank": "Available",
+          "radiology": "Available",
+          "dialysis": "Available",
+          "updatedAt": "2026-11-24T14:41:05.439Z"
+        }
+      },
+      "capabilities": [
+        {
+          "code": "SERVICE_EMERGENCY_DEPARTMENT",
+          "status": "AVAILABLE",
+          "quantity": null
+        },
+        {
+          "code": "BED_EMERGENCY",
+          "status": "AVAILABLE",
+          "quantity": 45,
+          "note": "general beds"
+        },
+        {
+          "code": "BED_ICU",
+          "status": "AVAILABLE",
+          "quantity": 2,
+          "note": "ICU beds"
+        },
+        {
+          "code": "EQUIP_VENTILATOR",
+          "status": "AVAILABLE",
+          "quantity": 1,
+          "note": "ventilators units"
+        },
+        {
+          "code": "EQUIP_CT_SCANNER",
+          "status": "AVAILABLE",
+          "quantity": 1,
+          "note": "ctScan units"
+        },
+        {
+          "code": "EQUIP_MRI",
+          "status": "UNAVAILABLE",
+          "quantity": 0,
+          "note": "mri units"
+        },
+        {
+          "code": "EQUIP_XRAY",
+          "status": "AVAILABLE",
+          "quantity": 3,
+          "note": "xray units"
+        },
+        {
+          "code": "EQUIP_DIALYSIS",
+          "status": "AVAILABLE",
+          "quantity": 2,
+          "note": "dialysis units"
+        },
+        {
+          "code": "SURGICAL_OPERATING_ROOM",
+          "status": "AVAILABLE",
+          "quantity": null
+        },
+        {
+          "code": "SURGICAL_MAJOR_EQUIPMENT",
+          "status": "AVAILABLE",
+          "quantity": null
+        },
+        {
+          "code": "EQUIP_BLOOD_BANK",
+          "status": "AVAILABLE",
+          "quantity": null
+        },
+        {
+          "code": "SPECIALIST_CARDIOLOGY",
+          "status": "AVAILABLE",
+          "quantity": null,
+          "note": "Dr. Anwar Zeb"
+        },
+        {
+          "code": "SPECIALIST_ORTHOPEDICS",
+          "status": "AVAILABLE",
+          "quantity": null,
+          "note": "Dr. Bakhtiar Khan"
+        },
+        {
+          "code": "SPECIALIST_GENERAL_SURGERY",
+          "status": "AVAILABLE",
+          "quantity": null,
+          "note": "Dr. Siraj Ahmad"
+        },
+        {
+          "code": "SPECIALIST_NEUROSURGERY",
+          "status": "UNAVAILABLE",
+          "quantity": null,
+          "note": "Unavailable"
+        },
+        {
+          "code": "SPECIALIST_OBSTETRICS",
+          "status": "AVAILABLE",
+          "quantity": null,
+          "note": "Dr. Shazia Durrani"
+        },
+        {
+          "code": "SPECIALIST_PEDIATRICS",
+          "status": "AVAILABLE",
+          "quantity": null,
+          "note": "Dr. Waseem Ullah"
+        },
+        {
+          "code": "SPECIALIST_ANESTHESIOLOGY",
+          "status": "AVAILABLE",
+          "quantity": null,
+          "note": "Dr. Naveed Alam"
+        },
+        {
+          "code": "BLOOD_O_NEG",
+          "status": "AVAILABLE",
+          "quantity": 3,
+          "note": "O- units"
+        },
+        {
+          "code": "BLOOD_O_POS",
+          "status": "AVAILABLE",
+          "quantity": 22,
+          "note": "O+ units"
+        },
+        {
+          "code": "BLOOD_A_POS",
+          "status": "AVAILABLE",
+          "quantity": 14,
+          "note": "A+ units"
+        },
+        {
+          "code": "BLOOD_B_POS",
+          "status": "AVAILABLE",
+          "quantity": 18,
+          "note": "B+ units"
+        }
+      ],
+      "lastOverallUpdate": "2026-11-24T14:41:05.439Z"
+    }
+  ]
+}

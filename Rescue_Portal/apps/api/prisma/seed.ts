@@ -15,6 +15,15 @@ loadEnv({ path: path.resolve(__dirname, '../../../.env') });
 
 const prisma = new PrismaClient();
 
+const DEMO_ACCOUNTS = [
+  { email: 'admin@rescueportal.local', firstName: 'Rescue', lastName: 'Administrator' },
+  { email: 'admin@rescue-one.local', firstName: 'Rescue', lastName: 'Organization Admin' },
+  { email: 'dispatcher@rescue-one.local', firstName: 'Rescue', lastName: 'Dispatcher' },
+  { email: 'leader@rescue-one.local', firstName: 'Rescue', lastName: 'Team Leader' },
+  { email: 'paramedic@rescue-one.local', firstName: 'Rescue', lastName: 'Paramedic' },
+  { email: 'auditor@rescue-one.local', firstName: 'Rescue', lastName: 'Auditor' },
+];
+
 async function hash(password: string): Promise<string> {
   return bcrypt.hash(password, 12);
 }
@@ -75,42 +84,44 @@ async function main(): Promise<void> {
     update: { status: 'VERIFIED', email, phone: 'N/A', verifiedAt: new Date() },
   });
 
-  // Keep only the configured Rescue Admin account/role for this deployment.
-  await prisma.refreshToken.deleteMany({ where: { user: { email: { not: email } } } });
-  await prisma.userRole.deleteMany({ where: { user: { email: { not: email } } } }).catch(() => undefined);
-  await prisma.invitation.deleteMany({}).catch(() => undefined);
-  await prisma.user.deleteMany({ where: { email: { not: email } } });
+  const accounts = new Map<string, { firstName: string; lastName: string; password: string }>();
+  if (process.env.SEED_DEMO_ACCOUNTS !== 'false') {
+    for (const account of DEMO_ACCOUNTS) {
+      accounts.set(account.email, {
+        firstName: account.firstName,
+        lastName: account.lastName,
+        password: 'Rescue@12345',
+      });
+    }
+  }
+  accounts.set(email, { firstName: 'Rescue', lastName: 'Admin', password });
 
   const rescueRole = await prisma.role.findUniqueOrThrow({ where: { code: ROLES.RESCUE_ADMIN } });
-  const passwordHash = await hash(password);
+  for (const [accountEmail, account] of accounts) {
+    const user = await prisma.user.upsert({
+      where: { email: accountEmail },
+      create: {
+        email: accountEmail,
+        passwordHash: await hash(account.password),
+        firstName: account.firstName,
+        lastName: account.lastName,
+        status: 'ACTIVE',
+        organizationId: organization.id,
+      },
+      update: {
+        passwordHash: await hash(account.password),
+        firstName: account.firstName,
+        lastName: account.lastName,
+        status: 'ACTIVE',
+        organizationId: organization.id,
+        deletedAt: null,
+      },
+    });
+    await prisma.userRole.deleteMany({ where: { userId: user.id } });
+    await prisma.userRole.create({ data: { userId: user.id, roleId: rescueRole.id } });
+  }
 
-  const admin = await prisma.user.upsert({
-    where: { email },
-    create: {
-      email,
-      passwordHash,
-      firstName: 'Rescue',
-      lastName: 'Admin',
-      status: 'ACTIVE',
-      organizationId: organization.id,
-    },
-    update: {
-      passwordHash,
-      firstName: 'Rescue',
-      lastName: 'Admin',
-      status: 'ACTIVE',
-      organizationId: organization.id,
-      deletedAt: null,
-    },
-  });
-
-  await prisma.userRole.deleteMany({ where: { userId: admin.id } });
-  await prisma.userRole.create({ data: { userId: admin.id, roleId: rescueRole.id } });
-
-  await prisma.rolePermission.deleteMany({ where: { role: { code: { not: ROLES.RESCUE_ADMIN } } } }).catch(() => undefined);
-  await prisma.role.deleteMany({ where: { code: { not: ROLES.RESCUE_ADMIN } } }).catch(() => undefined);
-
-  console.log('Seed complete. Rescue Admin account is configured.');
+  console.log(`Seed complete. ${accounts.size} Rescue Admin account(s) configured.`);
 }
 
 main()

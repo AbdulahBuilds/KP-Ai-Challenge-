@@ -2,7 +2,13 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HeuristicAiAdapter } from './heuristic-ai.adapter';
 import { AI_PROVIDER } from './ai.provider';
-import { AI_DISCLAIMER, type AiProvider, type RecommendationExplanationInput } from './ai.types';
+import {
+  AI_DISCLAIMER,
+  type AiProvider,
+  type HospitalRankingInput,
+  type HospitalRankingResult,
+  type RecommendationExplanationInput,
+} from './ai.types';
 
 @Injectable()
 export class AiService {
@@ -61,5 +67,36 @@ export class AiService {
       this.logger.warn(`AI explanation failed, using rule-based fallback: ${(error as Error).message}`);
       return this.heuristic.explainRecommendation(input);
     }
+  }
+
+  async rankHospitals(input: HospitalRankingInput): Promise<HospitalRankingResult> {
+    const locallyRanked = input.candidates
+      .filter((candidate) => candidate.eligibility === 'ELIGIBLE')
+      .slice()
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        const etaA = a.etaMinutes ?? Number.MAX_SAFE_INTEGER;
+        const etaB = b.etaMinutes ?? Number.MAX_SAFE_INTEGER;
+        if (etaA !== etaB) return etaA - etaB;
+        const distanceA = a.distanceKm ?? Number.MAX_SAFE_INTEGER;
+        const distanceB = b.distanceKm ?? Number.MAX_SAFE_INTEGER;
+        if (distanceA !== distanceB) return distanceA - distanceB;
+        return a.hospitalName.localeCompare(b.hospitalName);
+      });
+    let result: HospitalRankingResult;
+    if (this.provider.name !== 'http') {
+      result = await this.heuristic.rankHospitals(input);
+    } else {
+      try {
+        result = await this.provider.rankHospitals(input);
+      } catch (error) {
+        this.logger.warn(`AI ranking failed, using rule-based fallback: ${(error as Error).message}`);
+        result = await this.heuristic.rankHospitals(input);
+      }
+    }
+
+    const orderedHospitalIds = locallyRanked.map((candidate) => candidate.hospitalExternalId);
+    const suggestedHospitalId = orderedHospitalIds[0] ?? null;
+    return { ...result, orderedHospitalIds, suggestedHospitalId };
   }
 }

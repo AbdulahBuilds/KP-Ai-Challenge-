@@ -26,45 +26,56 @@ export function getAccessToken(): string | null {
 }
 
 function errorMessage(body: unknown, fallback: string): string {
+  if (typeof body === 'string') {
+    const text = body.trim();
+    if (!text || text.startsWith('<')) return fallback;
+    return text.length > 240 ? `${text.slice(0, 240)}…` : text;
+  }
   if (!body || typeof body !== 'object') return fallback;
-  const value = (body as { message?: unknown }).message;
-  if (Array.isArray(value)) return value.join('; ');
-  if (typeof value === 'string') return value;
+  const record = body as Record<string, unknown>;
+  for (const key of ['message', 'error', 'detail']) {
+    const value = record[key];
+    if (Array.isArray(value) && value.every((item) => typeof item === 'string')) return value.join('; ');
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
   return fallback;
 }
 
 async function parseBody(response: Response): Promise<unknown> {
-  const type = response.headers.get('content-type') ?? '';
-  if (type.includes('application/json')) {
-    try {
-      return await response.json();
-    } catch {
-      return null;
-    }
+  const text = await response.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
   }
-  return await response.text();
 }
 
 export async function refreshAccessToken(): Promise<AuthResponse | null> {
   if (!refreshPromise) {
     refreshPromise = (async () => {
+      let response: Response;
       try {
-        const response = await fetch(`${API_URL}/auth/refresh`, {
+        response = await fetch(`${API_URL}/auth/refresh`, {
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
           body: '{}',
         });
-        if (!response.ok) return null;
-        const data = (await response.json()) as AuthResponse;
-        accessToken = data.accessToken;
-        return data;
       } catch {
-        return null;
-      } finally {
-        refreshPromise = null;
+        throw new ApiError(`Cannot reach the Rescue Portal API at ${API_URL}. Check that the API is running.`, 0);
       }
-    })();
+      if (response.status === 401) return null;
+      if (!response.ok) {
+        const body = await parseBody(response);
+        throw new ApiError(errorMessage(body, `Session refresh failed (${response.status})`), response.status, body);
+      }
+      const data = (await response.json()) as AuthResponse;
+      accessToken = data.accessToken;
+      return data;
+    })().finally(() => {
+      refreshPromise = null;
+    });
   }
   return refreshPromise;
 }
@@ -92,11 +103,21 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
       cache: 'no-store',
     });
   } catch {
-    throw new ApiError('Cannot reach the Rescue Portal API. Check that the API is running.', 0);
+    throw new ApiError(`Cannot reach the Rescue Portal API at ${API_URL}. Check that the API is running.`, 0);
   }
 
   if (response.status === 401 && auth && retryOnUnauthorized) {
-    const refreshed = await refreshAccessToken();
+    let refreshed: AuthResponse | null = null;
+    try {
+      refreshed = await refreshAccessToken();
+    } catch (refreshError) {
+      if (refreshError instanceof ApiError && refreshError.status >= 500) {
+        throw new ApiError(`Your session could not be refreshed because the Rescue API is unavailable. ${refreshError.message}`, refreshError.status);
+      }
+      throw refreshError instanceof ApiError
+        ? refreshError
+        : new ApiError('Your session could not be refreshed. Please try again.', 0);
+    }
     if (refreshed) return api<T>(path, { ...options, retryOnUnauthorized: false });
     if (typeof window !== 'undefined') window.dispatchEvent(new Event('rescue-auth-expired'));
     throw new ApiError('Your session has expired. Please sign in again.', 401);
@@ -104,7 +125,11 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
 
   if (!response.ok) {
     const body = await parseBody(response);
-    throw new ApiError(errorMessage(body, `Request failed (${response.status})`), response.status, body);
+    const detail = errorMessage(body, `Request failed (${response.status})`);
+    const message = response.status >= 500
+      ? `${detail} — the Rescue API is unavailable or misconfigured. Please try again or contact support.`
+      : detail;
+    throw new ApiError(message, response.status, body);
   }
 
   if (response.status === 204) return undefined as T;
@@ -123,7 +148,12 @@ export function queryString(params: Record<string, string | number | boolean | u
 export async function downloadFile(path: string, filename: string): Promise<void> {
   const headers: Record<string, string> = {};
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
-  let response = await fetch(`${API_URL}${path}`, { headers, credentials: 'include' });
+  let response: Response;
+  try {
+    response = await fetch(`${API_URL}${path}`, { headers, credentials: 'include' });
+  } catch {
+    throw new ApiError(`Cannot reach the Rescue Portal API at ${API_URL}. Check that the API is running.`, 0);
+  }
   if (response.status === 401) {
     const refreshed = await refreshAccessToken();
     if (refreshed) {

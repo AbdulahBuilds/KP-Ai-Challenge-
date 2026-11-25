@@ -32,8 +32,8 @@ export async function GET(request) {
       const capabilities = [];
 
       // Check bed availability
-      if (beds.availableBeds > 0) {
-        capabilities.push(`${beds.availableBeds} General Beds Available`);
+      if (beds.available > 0) {
+        capabilities.push(`${beds.available} General Beds Available`);
       } else {
         matchScore -= 30;
       }
@@ -64,7 +64,7 @@ export async function GET(request) {
         district: h.district,
         phone: h.emergencyPhone || h.phone,
         address: h.address,
-        availableBeds: beds.availableBeds || 0,
+        availableBeds: beds.available || 0,
         availableIcuBeds: beds.icuAvailable || 0,
         dataFreshness: isOutdated ? "OUTDATED_UNVERIFIED" : "VERIFIED_FRESH",
         hoursSinceUpdate: Math.round(hoursAgo * 10) / 10,

@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import type {
   AiProvider,
   CapabilitySuggestionResult,
+  HospitalRankingInput,
+  HospitalRankingResult,
   IncidentSummaryResult,
   RecommendationExplanationInput,
   RecommendationExplanationResult,
@@ -55,6 +57,14 @@ export class HttpAiAdapter implements AiProvider {
   async explainRecommendation(input: RecommendationExplanationInput): Promise<RecommendationExplanationResult> {
     const result = await this.request<Omit<RecommendationExplanationResult, 'disclaimer' | 'isAiAssisted'>>(
       '/explain-recommendation',
+      input,
+    );
+    return { ...result, source: 'http', isAiAssisted: true, disclaimer: AI_DISCLAIMER };
+  }
+
+  async rankHospitals(input: HospitalRankingInput): Promise<HospitalRankingResult> {
+    const result = await this.request<Omit<HospitalRankingResult, 'disclaimer' | 'isAiAssisted' | 'source'>>(
+      '/rank-hospitals',
       input,
     );
     return { ...result, source: 'http', isAiAssisted: true, disclaimer: AI_DISCLAIMER };

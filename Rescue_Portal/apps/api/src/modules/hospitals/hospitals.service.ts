@@ -35,6 +35,8 @@ import type {
   SelectHospitalDto,
 } from './dto/hospital.dto';
 
+const ALL_AVAILABLE_HOSPITALS_RADIUS_KM = 21_000;
+
 const NOTICE_MOCK =
   'Demo data: hospital information and alert responses are simulated (not real hospital availability).';
 const NOTICE_LIVE =
@@ -107,10 +109,21 @@ export class HospitalsService {
     } catch (error) {
       this.handleProviderError(error);
     }
+    const nearbyResults = results
+      .map((hospital) => ({
+        ...hospital,
+        distanceKm: haversineDistanceKm(
+          { latitude: query.latitude, longitude: query.longitude },
+          { latitude: hospital.latitude, longitude: hospital.longitude },
+        ),
+      }))
+      .filter((hospital) => Number.isFinite(hospital.distanceKm) && hospital.distanceKm <= radiusKm)
+      .sort((a, b) => a.distanceKm - b.distanceKm)
+      .slice(0, query.limit ?? 20);
     const now = new Date();
-    if (results.length > 0) {
+    if (nearbyResults.length > 0) {
       await this.prisma.$transaction(
-        results.map((hospital) =>
+        nearbyResults.map((hospital) =>
           this.prisma.hospitalDirectoryCache.upsert({
             where: { externalHospitalId: hospital.externalId },
             create: {
@@ -145,19 +158,25 @@ export class HospitalsService {
       );
     }
     return {
-      data: results.map((hospital) => ({
+      data: nearbyResults.map((hospital) => ({
         ...hospital,
-        distanceKm:
-          Math.round(
-            haversineDistanceKm(
-              { latitude: query.latitude, longitude: query.longitude },
-              { latitude: hospital.latitude, longitude: hospital.longitude },
-            ) * 10,
-          ) / 10,
+        distanceKm: Math.round(hospital.distanceKm * 10) / 10,
       })),
-      meta: { count: results.length, radiusKm, searchedAt: now.toISOString() },
+      meta: { count: nearbyResults.length, radiusKm, searchedAt: now.toISOString() },
       integration: { adapter: this.provider.name, isMock: this.provider.isMock, notice: this.notice },
     };
+  }
+
+  async searchAllAvailable(
+    user: AuthUser,
+    query: { latitude: number; longitude: number; limit?: number },
+  ) {
+    return this.search(user, {
+      latitude: query.latitude,
+      longitude: query.longitude,
+      radiusKm: ALL_AVAILABLE_HOSPITALS_RADIUS_KM,
+      limit: query.limit ?? 25,
+    });
   }
 
   async directory(user: AuthUser, query: HospitalDirectoryQueryDto) {
@@ -360,7 +379,7 @@ export class HospitalsService {
       throw new BadRequestException('Pre-arrival alert can only be sent to the selected destination hospital.');
     }
     const idempotencyKey =
-      dto.idempotencyKey ?? `${incident.id}:${dto.hospitalExternalId}:${Date.now()}`;
+      dto.idempotencyKey ?? `${incident.id}:${dto.hospitalExternalId}`;
     const existing = await this.prisma.hospitalRequest.findUnique({ where: { idempotencyKey } });
     if (existing) {
       if (existing.incidentId !== incident.id) throw new BadGatewayException('Idempotency key belongs to another case');
@@ -382,6 +401,7 @@ export class HospitalsService {
         address: incident.address,
       },
       patient: {
+        patientName: incident.patient?.patientName ?? null,
         age: incident.patient?.age ?? null,
         gender: incident.patient?.gender ?? null,
         unidentified: incident.patient?.unidentified ?? false,
@@ -544,6 +564,51 @@ export class HospitalsService {
       this.handleProviderError(error);
     }
     const updated = await this.applyResult(request, result);
+    return this.viewRequest(updated);
+  }
+
+  async updateEta(user: AuthUser, requestId: string, etaMinutes: number) {
+    const request = await this.findRequest(user, requestId);
+    if (request.status === 'CANCELLED') {
+      throw new BadRequestException('Cannot update the ETA of a cancelled alert');
+    }
+    const externalRequestId = this.externalRequestId(request);
+    if (!externalRequestId) {
+      throw new BadGatewayException('Emergency request has not been delivered to the Hospital Portal yet');
+    }
+    let result: HospitalEmergencyRequestResult;
+    try {
+      result = await this.provider.sendEta(externalRequestId, etaMinutes);
+    } catch (error) {
+      this.handleProviderError(error);
+    }
+    const previousPayload =
+      request.responsePayload && typeof request.responsePayload === 'object' && !Array.isArray(request.responsePayload)
+        ? (request.responsePayload as Record<string, unknown>)
+        : {};
+    const updated = await this.prisma.hospitalRequest.update({
+      where: { id: request.id },
+      data: {
+        etaMinutes,
+        responsePayload: { ...previousPayload, ...result } as unknown as Prisma.InputJsonValue,
+        responseMessage: result.message ?? null,
+        lastCheckedAt: new Date(),
+        lastError: null,
+      },
+    });
+    await this.prisma.caseEvent.create({
+      data: {
+        incidentId: request.incidentId,
+        type: 'NOTE_ADDED' as CaseEventType,
+        message: `Updated ETA for ${request.hospitalName} to ${etaMinutes} minutes`,
+        metadata: {
+          hospitalRequestId: request.id,
+          hospitalExternalId: request.hospitalExternalId,
+          externalRequestId,
+          etaMinutes,
+        } as Prisma.InputJsonValue,
+      },
+    });
     return this.viewRequest(updated);
   }
 

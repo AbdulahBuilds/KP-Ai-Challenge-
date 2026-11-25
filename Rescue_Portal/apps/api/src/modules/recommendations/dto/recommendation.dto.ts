@@ -20,13 +20,23 @@ export class GenerateRecommendationsDto {
   @IsString({ each: true })
   requiredCapabilities?: string[];
 
-  @ApiPropertyOptional({ default: 30, description: 'Search radius around the patient location (km)' })
+  @ApiPropertyOptional({
+    default: 30,
+    description:
+      'Preferred search radius around the patient location (km). If no hospital is found, the nearest hospitals available in the Hospital Portal data are used.',
+  })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(100)
+  @Max(200)
   searchRadiusKm?: number;
+
+  @ApiPropertyOptional({ description: 'Free-text requirements (including dictated text) used to refine capabilities' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  notes?: string;
 }
 
 export class SelectRecommendationDto {

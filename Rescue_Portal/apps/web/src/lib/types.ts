@@ -128,6 +128,8 @@ export interface RecommendationSummaryRow {
   explanation?: string;
   explanationSource?: string;
   explanationMode?: 'ai' | 'rule_based';
+  aiRank?: number | null;
+  aiRationale?: string | null;
 }
 
 export interface Recommendation {
@@ -137,7 +139,17 @@ export interface Recommendation {
   policyVersion: string;
   policy?: Record<string, unknown>;
   requiredCapabilities?: string[];
+  notes?: string | null;
   results: RecommendationSummaryRow[];
+  suggestedHospitalId?: string | null;
+  aiSuggestion?: {
+    hospitalExternalId: string | null;
+    hospitalName: string | null;
+    summary: string;
+    rationale: string | null;
+    source: 'heuristic' | 'http';
+    mode: 'ai' | 'rule_based';
+  } | null;
   candidateCount: number;
   eligibleCount: number;
   unconfirmedCount: number;

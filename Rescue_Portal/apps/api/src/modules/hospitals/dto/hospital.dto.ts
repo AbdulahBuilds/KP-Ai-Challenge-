@@ -98,6 +98,15 @@ export class CreateHospitalRequestDto {
   idempotencyKey?: string;
 }
 
+export class UpdateHospitalRequestEtaDto {
+  @ApiProperty({ example: 12, description: 'Estimated arrival time in minutes' })
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(1440)
+  etaMinutes!: number;
+}
+
 export class SelectHospitalDto {
   @ApiProperty()
   @IsUUID()

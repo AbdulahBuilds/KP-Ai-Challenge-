@@ -744,6 +744,9 @@ model HospitalRecommendation {
   policyVersion            String
   policy                   Json
   results                  Json
+  suggestedHospitalId      String?
+  aiSuggestion             Json?
+  notes                    String?
   candidateCount           Int
   eligibleCount            Int
   unconfirmedCount         Int

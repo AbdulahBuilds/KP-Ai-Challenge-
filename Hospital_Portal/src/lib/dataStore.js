@@ -334,7 +334,29 @@ export const dataStore = {
     return list.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   },
 
+  async getEmergencyAlertById(id) {
+    const mongo = await connectToMongo();
+    if (mongo) {
+      return await EmergencyAlert.findOne({ $or: [{ id }, { rescueCaseId: id }] }).lean();
+    }
+    const store = ensureLocalFileStore();
+    return store.emergencyAlerts.find((alert) => alert.id === id || alert.rescueCaseId === id) || null;
+  },
+
   async createEmergencyAlert(data) {
+    const idempotencyKey = data.idempotencyKey || null;
+    if (idempotencyKey) {
+      const mongoCheck = await connectToMongo();
+      if (mongoCheck) {
+        const existing = await EmergencyAlert.findOne({ idempotencyKey }).lean();
+        if (existing) return existing;
+      } else {
+        const storeCheck = ensureLocalFileStore();
+        const existing = storeCheck.emergencyAlerts.find((alert) => alert.idempotencyKey === idempotencyKey);
+        if (existing) return existing;
+      }
+    }
+
     const newId = `1122-CASE-${Math.floor(100 + Math.random() * 900)}`;
     const newAlert = {
       id: newId,
@@ -350,20 +372,49 @@ export const dataStore = {
       vitals: data.vitals || "Critical / Polytrauma",
       status: "ALERT_RECEIVED",
       confirmedFacilities: [],
+      idempotencyKey,
+      etaUpdatedAt: null,
       createdAt: new Date().toISOString(),
       acknowledgedAt: null
     };
 
     const mongo = await connectToMongo();
     if (mongo) {
-      const doc = await EmergencyAlert.create(newAlert);
-      return doc.toObject();
+      try {
+        const doc = await EmergencyAlert.create(newAlert);
+        return doc.toObject();
+      } catch (error) {
+        if (idempotencyKey && error?.code === 11000) {
+          const existing = await EmergencyAlert.findOne({ idempotencyKey }).lean();
+          if (existing) return existing;
+        }
+        throw error;
+      }
     }
 
     const store = ensureLocalFileStore();
     store.emergencyAlerts.unshift(newAlert);
     saveLocalStore(store);
     return newAlert;
+  },
+
+  async updateEmergencyAlertEta(id, etaMinutes) {
+    const nowIso = new Date().toISOString();
+    const mongo = await connectToMongo();
+    if (mongo) {
+      return await EmergencyAlert.findOneAndUpdate(
+        { $or: [{ id }, { rescueCaseId: id }] },
+        { $set: { etaMinutes: Number(etaMinutes), etaUpdatedAt: new Date() } },
+        { new: true }
+      ).lean();
+    }
+    const store = ensureLocalFileStore();
+    const alert = store.emergencyAlerts.find((item) => item.id === id || item.rescueCaseId === id);
+    if (!alert) return null;
+    alert.etaMinutes = Number(etaMinutes);
+    alert.etaUpdatedAt = nowIso;
+    saveLocalStore(store);
+    return alert;
   },
 
   async acknowledgeEmergencyAlert(id, { status = "ACKNOWLEDGED", confirmedFacilities = [] }) {

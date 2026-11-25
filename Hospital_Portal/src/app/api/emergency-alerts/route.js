@@ -33,7 +33,10 @@ export async function POST(request) {
       }, { status: 400 });
     }
 
-    const newAlert = await dataStore.createEmergencyAlert(body);
+    const newAlert = await dataStore.createEmergencyAlert({
+      ...body,
+      idempotencyKey: request.headers.get('idempotency-key') || body.idempotencyKey || null,
+    });
 
     return NextResponse.json({
       success: true,

@@ -8,6 +8,9 @@
       "address": "GT Road, Soekarno Chowk, Peshawar, Khyber Pakhtunkhwa",
       "phone": "+92-91-9211430",
       "emergencyPhone": "+92-91-9211440",
+      "latitude": 34.0106,
+      "longitude": 71.5688,
+      "locationSource": "OpenStreetMap / Google Maps verified 2026-11-24",
       "adminName": "Dr. Khalid Masood (Medical Director)",
       "adminEmail": "staff@lrh.gov.pk",
       "resources": {
@@ -17,7 +20,7 @@
           "occupied": 1058,
           "icuTotal": 65,
           "icuAvailable": 7,
-          "updatedAt": "2026-11-16T10:20:03.643Z"
+          "updatedAt": "2026-11-24T22:17:01.218Z"
         },
         "bloodStock": {
           "units": {
@@ -78,7 +81,7 @@
               "cryoprecipitate": 3
             }
           },
-          "updatedAt": "2026-11-16T10:20:03.643Z"
+          "updatedAt": "2026-11-24T22:17:01.218Z"
         },
         "equipment": {
           "ventilators": {
@@ -121,7 +124,7 @@
             "available": 5,
             "status": "Operational"
           },
-          "updatedAt": "2026-11-16T10:20:03.643Z"
+          "updatedAt": "2026-11-24T22:17:01.218Z"
         },
         "specialists": {
           "cardiologist": {
@@ -164,7 +167,7 @@
             "onDuty": true,
             "shift": "OT Incharge"
           },
-          "updatedAt": "2026-11-16T10:20:03.643Z"
+          "updatedAt": "2026-11-24T22:17:01.218Z"
         },
         "services": {
           "emergency": "Available",
@@ -173,10 +176,10 @@
           "laboratory": "Available",
           "bloodBank": "Available",
           "radiology": "Available",
-          "dialysis": "Temporarily Unavailable",
-          "updatedAt": "2026-11-16T10:20:03.643Z"
+          "dialysis": "Available",
+          "updatedAt": "2026-11-24T22:17:01.218Z"
         },
-        "lastOverallUpdate": "2026-11-16T10:20:03.643Z"
+        "lastOverallUpdate": "2026-11-24T22:17:01.218Z"
       }
     },
     {
@@ -187,6 +190,9 @@
       "address": "Phase 4, Hayatabad, Peshawar, Khyber Pakhtunkhwa",
       "phone": "+92-91-9217140",
       "emergencyPhone": "+92-91-9217150",
+      "latitude": 33.9925,
+      "longitude": 71.4497,
+      "locationSource": "OpenStreetMap / Google Maps verified 2026-11-24",
       "adminName": "Dr. Shehzad Akbar (Medical Superintendent)",
       "adminEmail": "staff@hmc.gov.pk",
       "resources": {
@@ -196,7 +202,7 @@
           "occupied": 885,
           "icuTotal": 50,
           "icuAvailable": 5,
-          "updatedAt": "2026-11-15T14:48:45.045Z"
+          "updatedAt": "2026-11-24T16:26:05.438Z"
         },
         "bloodStock": {
           "units": {
@@ -257,7 +263,7 @@
               "cryoprecipitate": 2
             }
           },
-          "updatedAt": "2026-11-15T14:28:45.045Z"
+          "updatedAt": "2026-11-24T16:06:05.438Z"
         },
         "equipment": {
           "ventilators": {
@@ -300,7 +306,7 @@
             "available": 4,
             "status": "Operational"
           },
-          "updatedAt": "2026-11-15T14:18:45.045Z"
+          "updatedAt": "2026-11-24T15:56:05.438Z"
         },
         "specialists": {
           "cardiologist": {
@@ -343,7 +349,7 @@
             "onDuty": true,
             "shift": "Morning"
           },
-          "updatedAt": "2026-11-15T14:08:45.045Z"
+          "updatedAt": "2026-11-24T15:46:05.438Z"
         },
         "services": {
           "emergency": "Available",
@@ -353,9 +359,9 @@
           "bloodBank": "Available",
           "radiology": "Available",
           "dialysis": "Available",
-          "updatedAt": "2026-11-15T14:43:45.045Z"
+          "updatedAt": "2026-11-24T16:21:05.438Z"
         },
-        "lastOverallUpdate": "2026-11-15T14:48:45.045Z"
+        "lastOverallUpdate": "2026-11-24T16:26:05.438Z"
       }
     },
     {
@@ -366,6 +372,9 @@
       "address": "Karakoram Highway, Abbottabad, Khyber Pakhtunkhwa",
       "phone": "+92-992-381907",
       "emergencyPhone": "+92-992-381910",
+      "latitude": 34.2043,
+      "longitude": 73.2385,
+      "locationSource": "Wikipedia / OpenStreetMap verified 2026-11-24",
       "adminName": "Dr. Athar Lodhi (Medical Director)",
       "adminEmail": "staff@ath.gov.pk",
       "resources": {
@@ -375,7 +384,7 @@
           "occupied": 912,
           "icuTotal": 40,
           "icuAvailable": 3,
-          "updatedAt": "2026-11-15T01:03:45.045Z"
+          "updatedAt": "2026-11-24T02:41:05.438Z"
         },
         "bloodStock": {
           "units": {
@@ -436,7 +445,7 @@
               "cryoprecipitate": 1
             }
           },
-          "updatedAt": "2026-11-15T01:03:45.045Z"
+          "updatedAt": "2026-11-24T02:41:05.438Z"
         },
         "equipment": {
           "ventilators": {
@@ -479,7 +488,7 @@
             "available": 2,
             "status": "Operational"
           },
-          "updatedAt": "2026-11-15T01:03:45.045Z"
+          "updatedAt": "2026-11-24T02:41:05.439Z"
         },
         "specialists": {
           "cardiologist": {
@@ -522,7 +531,7 @@
             "onDuty": true,
             "shift": "Morning"
           },
-          "updatedAt": "2026-11-15T01:03:45.045Z"
+          "updatedAt": "2026-11-24T02:41:05.439Z"
         },
         "services": {
           "emergency": "Available",
@@ -532,9 +541,9 @@
           "bloodBank": "Available",
           "radiology": "Available",
           "dialysis": "Available",
-          "updatedAt": "2026-11-15T01:03:45.045Z"
+          "updatedAt": "2026-11-24T02:41:05.439Z"
         },
-        "lastOverallUpdate": "2026-11-15T01:03:45.045Z"
+        "lastOverallUpdate": "2026-11-24T02:41:05.439Z"
       }
     },
     {
@@ -545,6 +554,9 @@
       "address": "Bank Road, Mardan, Khyber Pakhtunkhwa",
       "phone": "+92-937-9230214",
       "emergencyPhone": "+92-937-9230220",
+      "latitude": 34.1911,
+      "longitude": 72.0457,
+      "locationSource": "Google Maps verified 2026-11-24",
       "adminName": "Dr. Javed Iqbal (Medical Superintendent)",
       "adminEmail": "staff@dhqmardan.gov.pk",
       "resources": {
@@ -554,7 +566,7 @@
           "occupied": 455,
           "icuTotal": 20,
           "icuAvailable": 2,
-          "updatedAt": "2026-11-15T13:03:45.045Z"
+          "updatedAt": "2026-11-24T14:41:05.439Z"
         },
         "bloodStock": {
           "units": {
@@ -615,7 +627,7 @@
               "cryoprecipitate": 0
             }
           },
-          "updatedAt": "2026-11-15T13:03:45.045Z"
+          "updatedAt": "2026-11-24T14:41:05.439Z"
         },
         "equipment": {
           "ventilators": {
@@ -658,7 +670,7 @@
             "available": 2,
             "status": "Operational"
           },
-          "updatedAt": "2026-11-15T13:03:45.045Z"
+          "updatedAt": "2026-11-24T14:41:05.439Z"
         },
         "specialists": {
           "cardiologist": {
@@ -701,7 +713,7 @@
             "onDuty": true,
             "shift": "Morning"
           },
-          "updatedAt": "2026-11-15T13:03:45.045Z"
+          "updatedAt": "2026-11-24T14:41:05.439Z"
         },
         "services": {
           "emergency": "Available",
@@ -711,9 +723,9 @@
           "bloodBank": "Available",
           "radiology": "Available",
           "dialysis": "Available",
-          "updatedAt": "2026-11-15T13:03:45.045Z"
+          "updatedAt": "2026-11-24T14:41:05.439Z"
         },
-        "lastOverallUpdate": "2026-11-15T13:03:45.045Z"
+        "lastOverallUpdate": "2026-11-24T14:41:05.439Z"
       }
     }
   ],
@@ -825,6 +837,57 @@
   ],
   "emergencyAlerts": [
     {
+      "id": "1122-CASE-573",
+      "rescueCaseId": "6a3f8de9-4017-435a-9450-76b431df282e",
+      "patientName": "Touhid",
+      "emergencyType": "MEDICAL",
+      "targetHospitalId": "lrh-peshawar",
+      "location": "Zargar Abad, Peshawar",
+      "requiredFacilities": [
+        "SERVICE_EMERGENCY_DEPARTMENT",
+        "BED_EMERGENCY",
+        "SPECIALIST_EMERGENCY_MEDICINE",
+        "EQUIP_DEFIBRILLATOR"
+      ],
+      "etaMinutes": 10,
+      "ambulanceId": "AMB-1122-KP-88",
+      "paramedicName": "Rescue 1122 - RSQ-20261125-14BB7A",
+      "vitals": "The patient is in a very bad condition | The patient is bleeding bcz of being shooted by bullet and the bleeding is not stopping | The patient is bleeding bcz of being shooted by bullet and the bleeding is not stopping",
+      "status": "FACILITIES_CONFIRMED",
+      "confirmedFacilities": [
+        "Trauma Bay 1 (Resuscitation)",
+        "Ventilator & Rapid Airway Team Prepared",
+        "Emergency Blood & MTP Protocol Reserved",
+        "On-Call Specialist & Surgical Team on Standby"
+      ],
+      "idempotencyKey": "7812409c-bca8-4045-8511-cad0a657a880:lrh-peshawar",
+      "etaUpdatedAt": null,
+      "createdAt": "2026-11-25T00:25:25.196Z",
+      "acknowledgedAt": "2026-11-25T00:26:23.930Z"
+    },
+    {
+      "id": "1122-CASE-879",
+      "rescueCaseId": "6aa0dc95-4947-406c-819f-6b4f0b3e5fd6",
+      "patientName": "Unidentified Patient",
+      "emergencyType": "MEDICAL",
+      "targetHospitalId": "hmc-peshawar",
+      "location": "22, 22",
+      "requiredFacilities": [
+        "SERVICE_EMERGENCY_DEPARTMENT",
+        "BED_EMERGENCY"
+      ],
+      "etaMinutes": 9614,
+      "ambulanceId": "AMB-1122-KP-41",
+      "paramedicName": "Rescue 1122 - RSQ-20261125-4FFB48",
+      "vitals": "Critical / Polytrauma",
+      "status": "ALERT_RECEIVED",
+      "confirmedFacilities": [],
+      "idempotencyKey": "auto:b45958f7-714e-4458-b525-b8ef1e12d460:hmc-peshawar",
+      "etaUpdatedAt": null,
+      "createdAt": "2026-11-25T00:19:57.240Z",
+      "acknowledgedAt": null
+    },
+    {
       "id": "1122-CASE-844",
       "rescueCaseId": "RES-KPK-749",
       "patientName": "Unknown Male (Approx 25)",
@@ -934,5 +997,5 @@
       "password": "password123"
     }
   ],
-  "lastReset": "2026-11-15T15:03:45.111Z"
+  "lastReset": "2026-11-24T16:41:05.441Z"
 }

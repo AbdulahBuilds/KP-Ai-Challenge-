@@ -3,7 +3,13 @@ import { dataStore } from '@/lib/dataStore';
 
 export async function POST(request) {
   try {
-    const { username, password } = await request.json();
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON request body" }, { status: 400 });
+    }
+    const { username, password } = body ?? {};
     if (!username || !password) {
       return NextResponse.json({ error: "Username and password are required" }, { status: 400 });
     }
@@ -28,7 +34,10 @@ export async function POST(request) {
     });
   } catch (error) {
     console.error("Login API Error:", error);
-    return NextResponse.json({ error: "Server error during login" }, { status: 500 });
+    return NextResponse.json({
+      error: "Server error during login",
+      detail: process.env.NODE_ENV !== "production" ? String(error?.message ?? error) : undefined
+    }, { status: 500 });
   }
 }
 

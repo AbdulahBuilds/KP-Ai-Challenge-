@@ -37,6 +37,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       # Default is development so clearly-labelled mock integrations can run.
       # For a real deployment set NODE_ENV=production, use live adapters and
@@ -46,17 +48,19 @@ services:
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL to your MongoDB Atlas connection string}
       REDIS_URL: redis://redis:6379
       REDIS_ENABLED: "true"
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:3001}
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?set JWT_ACCESS_SECRET}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?set JWT_REFRESH_SECRET}
       JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-900}
       JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-604800}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
-      HOSPITAL_ADAPTER: ${HOSPITAL_ADAPTER:-mock}
-      HOSPITAL_API_BASE_URL: ${HOSPITAL_API_BASE_URL:-}
+      HOSPITAL_ADAPTER: ${HOSPITAL_ADAPTER:-http}
+      # The real Hospital Portal runs on the host at port 3000. Set
+      # HOSPITAL_API_BASE_URL_DOCKER to an external portal URL when deploying.
+      HOSPITAL_API_BASE_URL: ${HOSPITAL_API_BASE_URL_DOCKER:-http://host.docker.internal:3000}
       HOSPITAL_API_KEY: ${HOSPITAL_API_KEY:-}
-      HOSPITAL_DATA_MAX_AGE_SECONDS: ${HOSPITAL_DATA_MAX_AGE_SECONDS:-300}
+      HOSPITAL_DATA_MAX_AGE_SECONDS: ${HOSPITAL_DATA_MAX_AGE_SECONDS:-86400}
       HOSPITAL_REQUEST_TIMEOUT_SECONDS: ${HOSPITAL_REQUEST_TIMEOUT_SECONDS:-120}
       MOCK_HOSPITAL_API_KEY: ${MOCK_HOSPITAL_API_KEY:-}
       PATIENT_ADAPTER: ${PATIENT_ADAPTER:-mock}

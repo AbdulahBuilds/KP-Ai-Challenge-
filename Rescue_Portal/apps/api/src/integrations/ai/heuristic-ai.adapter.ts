@@ -4,24 +4,31 @@ import type {
   AiProvider,
   CapabilitySuggestion,
   CapabilitySuggestionResult,
+  HospitalRankingCandidate,
+  HospitalRankingInput,
+  HospitalRankingResult,
   IncidentSummaryResult,
   RecommendationExplanationInput,
   RecommendationExplanationResult,
 } from './ai.types';
 import { AI_DISCLAIMER } from './ai.types';
 
+/**
+ * Hints are restricted to capability codes the Hospital Portal actually reports.
+ * A hospital is never marked ELIGIBLE for a capability the portal did not confirm.
+ */
 const EMERGENCY_TYPE_HINTS: Record<string, string[]> = {
-  CARDIAC: ['SERVICE_EMERGENCY_DEPARTMENT', 'SPECIALIST_CARDIOLOGY', 'EQUIP_DEFIBRILLATOR', 'BED_ICU'],
+  CARDIAC: ['SERVICE_EMERGENCY_DEPARTMENT', 'SPECIALIST_CARDIOLOGY', 'BED_ICU'],
   TRAUMA: [
     'SERVICE_EMERGENCY_DEPARTMENT',
-    'SERVICE_TRAUMA_CENTER',
     'SURGICAL_OPERATING_ROOM',
     'SPECIALIST_GENERAL_SURGERY',
     'SPECIALIST_ORTHOPEDICS',
     'BED_ICU',
     'BLOOD_O_NEG',
+    'EQUIP_CT_SCANNER',
   ],
-  BURNS: ['SERVICE_EMERGENCY_DEPARTMENT', 'SERVICE_BURNS_UNIT', 'BED_ICU', 'EQUIP_VENTILATOR'],
+  BURNS: ['SERVICE_EMERGENCY_DEPARTMENT', 'BED_ICU', 'EQUIP_VENTILATOR'],
   RESPIRATORY: ['SERVICE_EMERGENCY_DEPARTMENT', 'EQUIP_VENTILATOR', 'BED_ICU', 'EQUIP_XRAY'],
   OBSTETRIC: [
     'SERVICE_EMERGENCY_DEPARTMENT',
@@ -30,21 +37,22 @@ const EMERGENCY_TYPE_HINTS: Record<string, string[]> = {
     'BLOOD_O_NEG',
   ],
   PEDIATRIC: ['SERVICE_EMERGENCY_DEPARTMENT', 'SPECIALIST_PEDIATRICS', 'BED_ICU'],
-  NEONATAL: ['SERVICE_EMERGENCY_DEPARTMENT', 'SPECIALIST_PEDIATRICS', 'SERVICE_NEONATAL_ICU'],
+  NEONATAL: ['SERVICE_EMERGENCY_DEPARTMENT', 'SPECIALIST_PEDIATRICS', 'BED_ICU'],
   PSYCHIATRIC: ['SERVICE_EMERGENCY_DEPARTMENT'],
-  MEDICAL: ['SERVICE_EMERGENCY_DEPARTMENT', 'SPECIALIST_EMERGENCY_MEDICINE'],
+  MEDICAL: ['SERVICE_EMERGENCY_DEPARTMENT'],
 };
 
 const KEYWORD_HINTS: { pattern: RegExp; codes: string[] }[] = [
   { pattern: /\bunconscious|unresponsive|coma\b/i, codes: ['BED_ICU', 'EQUIP_VENTILATOR', 'SERVICE_EMERGENCY_DEPARTMENT'] },
   { pattern: /\bbleeding|haemorrhage|hemorrhage\b/i, codes: ['BLOOD_O_NEG', 'SURGICAL_OPERATING_ROOM', 'SPECIALIST_GENERAL_SURGERY'] },
-  { pattern: /\bchest pain|heart attack|myocardial|cardiac arrest\b/i, codes: ['SPECIALIST_CARDIOLOGY', 'EQUIP_DEFIBRILLATOR', 'BED_ICU'] },
-  { pattern: /\bfracture|broken bone|head injury|accident|collision\b/i, codes: ['SERVICE_TRAUMA_CENTER', 'SPECIALIST_ORTHOPEDICS', 'EQUIP_CT_SCANNER'] },
+  { pattern: /\bchest pain|heart attack|myocardial|cardiac arrest\b/i, codes: ['SPECIALIST_CARDIOLOGY', 'BED_ICU'] },
+  { pattern: /\bfracture|broken bone|head injury|accident|collision\b/i, codes: ['SPECIALIST_ORTHOPEDICS', 'EQUIP_CT_SCANNER', 'SURGICAL_OPERATING_ROOM'] },
   { pattern: /\bpregnan|labour|labor|delivery\b/i, codes: ['SPECIALIST_OBSTETRICS', 'SURGICAL_OPERATING_ROOM'] },
   { pattern: /\bchild|infant|baby|paediatric|pediatric\b/i, codes: ['SPECIALIST_PEDIATRICS', 'BED_ICU'] },
-  { pattern: /\bnewborn|neonatal\b/i, codes: ['SERVICE_NEONATAL_ICU', 'SPECIALIST_PEDIATRICS'] },
-  { pattern: /\bburn|scald\b/i, codes: ['SERVICE_BURNS_UNIT', 'BED_ICU'] },
-  { pattern: /\bstroke|brain\b/i, codes: ['SPECIALIST_NEUROSURGERY', 'EQUIP_CT_SCANNER', 'BED_ICU'] },
+  { pattern: /\bnewborn|neonatal\b/i, codes: ['SPECIALIST_PEDIATRICS', 'BED_ICU'] },
+  { pattern: /\bburn|scald\b/i, codes: ['BED_ICU', 'EQUIP_VENTILATOR'] },
+  { pattern: /\bstroke\b/i, codes: ['EQUIP_CT_SCANNER', 'BED_ICU'] },
+  { pattern: /\bbrain injury|neurosurgery\b/i, codes: ['SPECIALIST_NEUROSURGERY', 'EQUIP_CT_SCANNER', 'BED_ICU'] },
   { pattern: /\bventilat|breathless|difficulty breathing\b/i, codes: ['EQUIP_VENTILATOR', 'BED_ICU'] },
   { pattern: /\bdialysis|renal|kidney failure\b/i, codes: ['EQUIP_DIALYSIS'] },
 ];
@@ -153,6 +161,54 @@ export class HeuristicAiAdapter implements AiProvider {
       source: 'heuristic',
       isAiAssisted: true,
       disclaimer: `${AI_DISCLAIMER} Recommendations support, and do not replace, the dispatcher's decision.`,
+    };
+  }
+
+  async rankHospitals(input: HospitalRankingInput): Promise<HospitalRankingResult> {
+    const eligible = input.candidates
+      .filter((candidate) => candidate.eligibility === 'ELIGIBLE')
+      .slice()
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        const etaA = a.etaMinutes ?? Number.MAX_SAFE_INTEGER;
+        const etaB = b.etaMinutes ?? Number.MAX_SAFE_INTEGER;
+        if (etaA !== etaB) return etaA - etaB;
+        const distanceA = a.distanceKm ?? Number.MAX_SAFE_INTEGER;
+        const distanceB = b.distanceKm ?? Number.MAX_SAFE_INTEGER;
+        if (distanceA !== distanceB) return distanceA - distanceB;
+        return a.hospitalName.localeCompare(b.hospitalName);
+      });
+
+    const rationaleById: Record<string, string> = {};
+    for (const candidate of eligible) {
+      const confirmed = candidate.capabilityEvaluations
+        .filter((evaluation) => evaluation.status === 'AVAILABLE')
+        .map((evaluation) => {
+          const quantity = typeof evaluation.quantity === 'number' ? ` (${evaluation.quantity} available)` : '';
+          const note = evaluation.note ? `; ${evaluation.note}` : '';
+          return `${capabilityLabel(evaluation.code)}${quantity}${note}`;
+        });
+      const travel = candidate.etaMinutes !== null ? `${candidate.etaMinutes} min ETA` : 'ETA unavailable';
+      const distance = candidate.distanceKm !== null ? `${candidate.distanceKm.toFixed(1)} km away` : 'distance unavailable';
+      rationaleById[candidate.hospitalExternalId] =
+        `Best match from current hospital portal data: ${confirmed.join(', ') || 'no required capabilities listed'} confirmed. ${travel}, ${distance}.`;
+    }
+
+    const orderedHospitalIds = eligible.map((candidate) => candidate.hospitalExternalId);
+    const suggestedHospitalId = orderedHospitalIds[0] ?? null;
+    const suggested = eligible.find((candidate) => candidate.hospitalExternalId === suggestedHospitalId);
+    const summary = suggested
+      ? `AI suggests ${suggested.hospitalName} first, based on ${eligible.length} eligible hospital(s) with fresh capability data from the hospital portal. A rescue admin must still confirm the destination.`
+      : 'No hospital currently meets all required capabilities on fresh hospital portal data. Review unconfirmed results and contact hospitals directly.';
+
+    return {
+      orderedHospitalIds,
+      suggestedHospitalId,
+      summary,
+      rationaleById,
+      source: 'heuristic',
+      isAiAssisted: true,
+      disclaimer: `${AI_DISCLAIMER} The safety gate is rule-based; AI only orders hospitals that already passed it.`,
     };
   }
 }

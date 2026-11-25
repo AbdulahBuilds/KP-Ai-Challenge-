@@ -3,12 +3,15 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { mongoNullish } from '../../common/utils/prisma-mongo.util';
 import { AuditService } from '../audit/audit.service';
+import { HospitalsService } from '../hospitals/hospitals.service';
+import { RecommendationsService } from '../recommendations/recommendations.service';
 import { resolvePagination } from '../../common/utils/pagination.util';
 import { generateCaseNumber } from '../../common/utils/crypto.util';
 import type { AuthUser } from '../../common/types/auth-user';
@@ -25,11 +28,27 @@ const incidentDetailInclude = {
   },
 } satisfies Prisma.IncidentInclude;
 
+interface AutoRecommendationResult {
+  id: string;
+  suggestedHospitalId: string | null;
+  results: Array<{
+    hospitalExternalId: string;
+    hospitalName: string;
+    eligibility: string;
+    etaMinutes?: number | null;
+    requiredCapabilities?: string[];
+  }>;
+}
+
 @Injectable()
 export class IncidentsService {
+  private readonly logger = new Logger(IncidentsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly recommendations: RecommendationsService,
+    private readonly hospitals: HospitalsService,
   ) {}
 
   private orgId(user: AuthUser): string {
@@ -98,6 +117,19 @@ export class IncidentsService {
             emergencyType: created.emergencyType,
           },
         });
+        const recommendation = await this.recommendations.generateAfterSubmission(user, created.id);
+        if (recommendation) {
+          await this.sendAutomaticPreArrivalAlert(user, created.id, recommendation as AutoRecommendationResult);
+        } else {
+          await this.prisma.caseEvent.create({
+            data: {
+              incidentId: created.id,
+              type: 'NOTE_ADDED',
+              message: 'Automatic hospital recommendation is unavailable; generate recommendations manually.',
+              actorId: user.id,
+            },
+          });
+        }
         return this.get(user, created.id);
       } catch (error) {
         if (this.isCaseNumberConflict(error) && attempt < 5) continue;
@@ -223,6 +255,71 @@ export class IncidentsService {
       after: { changedFields: Object.keys(dto) },
     });
     return this.get(user, id);
+  }
+
+  private async sendAutomaticPreArrivalAlert(
+    user: AuthUser,
+    incidentId: string,
+    recommendation: AutoRecommendationResult,
+  ): Promise<void> {
+    const suggested = recommendation.results.find(
+      (result) =>
+        result.hospitalExternalId === recommendation.suggestedHospitalId &&
+        result.eligibility === 'ELIGIBLE',
+    );
+    const topEligible =
+      suggested ?? recommendation.results.find((result) => result.eligibility === 'ELIGIBLE') ?? null;
+    if (!topEligible) {
+      await this.prisma.caseEvent.create({
+        data: {
+          incidentId,
+          type: 'NOTE_ADDED',
+          message: 'No hospital with confirmed capability data was available for an automatic pre-arrival alert. Select a destination manually.',
+          actorId: user.id,
+        },
+      });
+      return;
+    }
+
+    const etaMinutes =
+      typeof topEligible.etaMinutes === 'number' && Number.isFinite(topEligible.etaMinutes)
+        ? Math.max(0, Math.round(topEligible.etaMinutes))
+        : undefined;
+
+    try {
+      await this.hospitals.selectDestination(user, {
+        incidentId,
+        hospitalExternalId: topEligible.hospitalExternalId,
+        hospitalName: topEligible.hospitalName,
+        recommendationId: recommendation.id,
+        reason: 'Automatically selected as the top eligible recommendation for this emergency case.',
+      });
+      await this.hospitals.requestEmergency(user, incidentId, {
+        hospitalExternalId: topEligible.hospitalExternalId,
+        hospitalName: topEligible.hospitalName,
+        etaMinutes,
+        requiredCapabilities: topEligible.requiredCapabilities,
+        idempotencyKey: `auto:${incidentId}:${topEligible.hospitalExternalId}`,
+      });
+      await this.prisma.caseEvent.create({
+        data: {
+          incidentId,
+          type: 'NOTE_ADDED',
+          message: `Automatic pre-arrival alert sent to ${topEligible.hospitalName} from the post-submission recommendation.`,
+          actorId: user.id,
+        },
+      });
+    } catch (error) {
+      this.logger.warn(`Automatic pre-arrival alert failed for case ${incidentId}: ${(error as Error).message}`);
+      await this.prisma.caseEvent.create({
+        data: {
+          incidentId,
+          type: 'NOTE_ADDED',
+          message: `Automatic pre-arrival alert could not be sent: ${(error as Error).message}. Send it manually from the case page.`,
+          actorId: user.id,
+        },
+      });
+    }
   }
 
   private buildTitle(dto: CreateIncidentDto, caseNumber: string): string {

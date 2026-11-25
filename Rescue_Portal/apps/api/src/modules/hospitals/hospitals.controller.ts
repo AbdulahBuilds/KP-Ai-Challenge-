@@ -10,6 +10,7 @@ import {
   HospitalDirectoryQueryDto,
   HospitalSearchQueryDto,
   SelectHospitalDto,
+  UpdateHospitalRequestEtaDto,
 } from './dto/hospital.dto';
 
 @ApiTags('Hospitals & Pre-arrival Alerts')
@@ -97,5 +98,12 @@ export class HospitalsController {
   @ApiOperation({ summary: 'Refresh alert status from Hospital Portal' })
   syncRequest(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.hospitals.syncRequest(user, id);
+  }
+
+  @Post('hospital-requests/:id/eta')
+  @RequirePermissions(PERMISSIONS.HOSPITAL_REQUEST)
+  @ApiOperation({ summary: 'Send an updated ETA to Hospital Portal' })
+  updateEta(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: UpdateHospitalRequestEtaDto) {
+    return this.hospitals.updateEta(user, id, dto.etaMinutes);
   }
 }

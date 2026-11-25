@@ -55,10 +55,18 @@ const EXTERNAL_STATUSES: ExternalHospitalRequestStatus[] = [
   'FAILED',
 ];
 
+const EXTERNAL_STATUS_ALIASES: Record<string, ExternalHospitalRequestStatus> = {
+  ALERT_RECEIVED: 'PENDING',
+  RECEIVED: 'PENDING',
+  FACILITIES_CONFIRMED: 'ACCEPTED',
+  CONFIRMED: 'ACCEPTED',
+  DECLINED: 'REJECTED',
+};
+
 /**
- * HTTP client for the external Hospital Portal contract. Activate with
- * HOSPITAL_ADAPTER=http. The exact upstream implementation must be confirmed
- * with the hospital integration owner before production use.
+ * HTTP client for the Hospital Portal integration contract. Activate with
+ * HOSPITAL_ADAPTER=http and set HOSPITAL_API_BASE_URL (and optionally
+ * HOSPITAL_API_KEY). Missing freshness data is rejected rather than invented.
  */
 @Injectable()
 export class HttpHospitalAdapter implements HospitalProvider {
@@ -101,7 +109,7 @@ export class HttpHospitalAdapter implements HospitalProvider {
     if (this.circuitState === 'OPEN') {
       throw new HospitalIntegrationError('Hospital integration circuit breaker is open', 'UNAVAILABLE', true);
     }
-    const timeoutMs = Number(this.config.get<string>('HOSPITAL_API_TIMEOUT_MS', '10000'));
+    const timeoutMs = Number(this.config.get<string>('HOSPITAL_API_TIMEOUT_MS', '8000'));
     const apiKey = this.config.get<string>('HOSPITAL_API_KEY');
     let response: Response;
     try {
@@ -126,7 +134,7 @@ export class HttpHospitalAdapter implements HospitalProvider {
     }
     if (!response.ok) {
       const body = await response.text().catch(() => '');
-      this.recordFailure(`HTTP ${response.status}`);
+      if (response.status !== 404) this.recordFailure(`HTTP ${response.status}`);
       throw new HospitalIntegrationError(
         `Hospital Portal returned HTTP ${response.status}${body ? `: ${body.slice(0, 300)}` : ''}`,
         response.status === 404 ? 'NOT_FOUND' : 'UPSTREAM_ERROR',
@@ -153,7 +161,9 @@ export class HttpHospitalAdapter implements HospitalProvider {
   }
 
   private mapStatus(status: string | undefined): ExternalHospitalRequestStatus {
-    const normalised = (status ?? 'FAILED').toUpperCase();
+    const normalised = (status ?? 'FAILED').trim().toUpperCase();
+    const alias = EXTERNAL_STATUS_ALIASES[normalised];
+    if (alias) return alias;
     return EXTERNAL_STATUSES.includes(normalised as ExternalHospitalRequestStatus)
       ? (normalised as ExternalHospitalRequestStatus)
       : 'FAILED';
@@ -166,11 +176,10 @@ export class HttpHospitalAdapter implements HospitalProvider {
       ...(params.radiusKm ? { radiusKm: String(params.radiusKm) } : {}),
       ...(params.limit ? { limit: String(params.limit) } : {}),
     });
-    const response = await this.request<HospitalHttpSummary[] | { data?: HospitalHttpSummary[] }>(
-      `/api/hospitals/search?${query.toString()}`,
-      { method: 'GET' },
-    );
-    const hospitals = Array.isArray(response) ? response : response.data ?? [];
+    const response = await this.request<
+      HospitalHttpSummary[] | { data?: HospitalHttpSummary[]; hospitals?: HospitalHttpSummary[] }
+    >(`/api/hospitals/search?${query.toString()}`, { method: 'GET' });
+    const hospitals = Array.isArray(response) ? response : response.data ?? response.hospitals ?? [];
     return hospitals.map((hospital) => {
       const externalId = hospital.externalId ?? hospital.id;
       if (!externalId || hospital.latitude === undefined || hospital.longitude === undefined) {
@@ -197,17 +206,30 @@ export class HttpHospitalAdapter implements HospitalProvider {
       { method: 'GET' },
     );
     const data = 'data' in payload && payload.data ? payload.data : (payload as HospitalHttpAvailability);
-    const capabilities: HospitalCapability[] = (data.capabilities ?? []).map((capability) => {
+    if (!Array.isArray(data.capabilities)) {
+      throw new HospitalIntegrationError('Hospital Portal returned no capability data', 'UPSTREAM_ERROR', false);
+    }
+    if (!data.observedAt || !data.expiresAt) {
+      throw new HospitalIntegrationError(
+        'Hospital Portal capability data is missing observedAt/expiresAt and cannot be treated as fresh',
+        'UPSTREAM_ERROR',
+        false,
+      );
+    }
+    const capabilities: HospitalCapability[] = data.capabilities.map((capability) => {
       const status = (capability.status ?? 'UNKNOWN').toUpperCase();
+      if (!capability.code) {
+        throw new HospitalIntegrationError('Hospital Portal returned a capability without a code', 'UPSTREAM_ERROR', false);
+      }
       return {
-        code: capability.code ?? 'UNKNOWN',
+        code: capability.code,
         status: (['AVAILABLE', 'UNAVAILABLE', 'UNKNOWN'].includes(status) ? status : 'UNKNOWN') as CapabilityAvailability,
         quantity: capability.quantity ?? null,
         note: capability.note ?? null,
       };
     });
-    const observedAt = data.observedAt ? new Date(data.observedAt) : new Date();
-    const expiresAt = data.expiresAt ? new Date(data.expiresAt) : new Date(observedAt.getTime() + 5 * 60 * 1000);
+    const observedAt = new Date(data.observedAt);
+    const expiresAt = new Date(data.expiresAt);
     if (Number.isNaN(observedAt.getTime()) || Number.isNaN(expiresAt.getTime())) {
       throw new HospitalIntegrationError('Hospital Portal returned invalid availability timestamps', 'UPSTREAM_ERROR', false);
     }
@@ -215,12 +237,12 @@ export class HttpHospitalAdapter implements HospitalProvider {
       hospitalExternalId,
       hospitalName: data.hospitalName ?? hospitalExternalId,
       capabilities,
-      sourceResponseId: data.snapshotId ?? `live-${Date.now()}`,
+      sourceResponseId: data.snapshotId ?? `${hospitalExternalId}:${observedAt.toISOString()}`,
       observedAt,
       expiresAt,
       isMock: false,
       dataSource: 'LIVE',
-      raw: data.raw,
+      raw: data.raw ?? data,
     };
   }
 

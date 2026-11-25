@@ -61,6 +61,7 @@ export interface HospitalEmergencyRequestInput {
   emergencyType: EmergencyType;
   location: { latitude: number; longitude: number; address?: string | null };
   patient: {
+    patientName?: string | null;
     age?: number | null;
     gender?: string | null;
     unidentified?: boolean;

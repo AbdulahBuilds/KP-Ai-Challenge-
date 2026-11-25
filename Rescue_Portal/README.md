@@ -14,7 +14,7 @@ The repository is a TypeScript monorepo:
 - Incident intake and a guarded state machine: `RECEIVED → REGISTERED → REVIEWED → DISPATCHED → EN_ROUTE → ON_SCENE → TRANSPORTING → AT_HOSPITAL → HANDOVER_IN_PROGRESS → HANDOVER_COMPLETED → CLOSED`, with explicit cancel/fail paths.
 - Concurrent-safe assignment and release using MongoDB transactions, optimistic conditional updates and unique compound indexes.
 - Ambulance/team readiness, capability loadout, equipment checks, GPS ingestion and stale-GPS detection.
-- Explainable hospital recommendations with an eligibility gate, freshness assessment, distance/ETA fallback and mandatory human confirmation.
+- Explainable hospital recommendations with an eligibility gate, freshness assessment, distance/ETA fallback and mandatory human confirmation. When no hospital is found in the preferred radius, the nearest hospitals available in the Hospital Portal data are recommended instead of stopping at a hard distance limit. See [Available hospitals](./Available%20hospitals.md) for the current hospital catalog.
 - Idempotent emergency requests to hospitals, polling/sync, timeout handling, circuit-breaking HTTP adapter, ETA updates and communication history.
 - Patient summary access through a dedicated integration, with purpose auditing and minimum-necessary fields.
 - Handover record and report analytics (response-time percentiles, case mix, hospital acceptance, fleet activity) with CSV exports.
@@ -74,14 +74,16 @@ docker compose --profile storage up -d minio
 
 All passwords are `Rescue@12345`.
 
-| Email | Role |
+| Email | Access |
 | --- | --- |
-| `admin@rescueportal.local` | Super administrator |
-| `admin@rescue-one.local` | Organization administrator |
-| `dispatcher@rescue-one.local` | Dispatcher |
-| `leader@rescue-one.local` | Team leader |
-| `paramedic@rescue-one.local` | Paramedic |
-| `auditor@rescue-one.local` | Auditor |
+| `admin@rescueportal.local` | Rescue Admin |
+| `admin@rescue-one.local` | Rescue Admin |
+| `dispatcher@rescue-one.local` | Rescue Admin |
+| `leader@rescue-one.local` | Rescue Admin |
+| `paramedic@rescue-one.local` | Rescue Admin |
+| `auditor@rescue-one.local` | Rescue Admin |
+
+The account configured by `RESCUE_ADMIN_EMAIL` is also seeded with its password from `RESCUE_ADMIN_PASSWORD`. Set `SEED_DEMO_ACCOUNTS=false` to seed only that account.
 
 ## Local development (without Docker)
 

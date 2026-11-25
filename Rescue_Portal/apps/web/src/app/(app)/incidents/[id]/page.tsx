@@ -18,6 +18,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { api, ApiError, queryString } from '@/lib/api';
+import { getCurrentLocation, isValidCoordinate } from '@/lib/geolocation';
 import { useAuth } from '@/lib/auth-context';
 import type { Hospital, HospitalRequest, IncidentDetail, Recommendation, RecommendationSummaryRow } from '@/lib/types';
 import { CAPABILITY_LABELS, PERMISSIONS } from '@/lib/constants';
@@ -44,6 +45,15 @@ function integrationNotices(rec?: Recommendation | null) {
   if (rec?.integration?.hospital?.notice) notices.push(rec.integration.hospital.notice);
   if (rec?.integration?.maps?.isMock) notices.push('Distance and ETA are estimated (live routing not configured). Do not treat as actual travel time.');
   if (rec?.integration?.ai?.mode === 'rule_based') notices.push('Recommendations are rule-based (AI provider not configured).');
+  if (rec?.policy?.noPortalDataNearLocation) {
+    notices.push('No hospitals are available in the Hospital Portal data source. No hospital can be recommended from portal data.');
+  } else if (rec?.policy?.usedNearestFallback) {
+    const nearest = rec.policy.nearestAvailableDistanceKm;
+    notices.push(
+      `No Hospital Portal data was found within ${String(rec.policy.searchRadiusKm ?? 30)} km. Showing the nearest available hospitals from portal data${nearest == null ? '' : ` (nearest ${Number(nearest).toFixed(1)} km away)`}. Confirm transport feasibility before dispatch.`,
+    );
+  }
+  for (const warning of rec?.warnings ?? []) notices.push(warning);
   if (rec?.disclaimer) notices.push(rec.disclaimer);
   return notices;
 }
@@ -55,11 +65,16 @@ export default function IncidentDetailPage() {
   const queryClient = useQueryClient();
 
   const [radiusKm, setRadiusKm] = useState('25');
+  const [editingLocation, setEditingLocation] = useState(false);
+  const [locationDraft, setLocationDraft] = useState({ latitude: '', longitude: '' });
+  const [locatingCase, setLocatingCase] = useState(false);
+  const [savingLocation, setSavingLocation] = useState(false);
   const [searchRequirements, setSearchRequirements] = useState('');
   const [searchData, setSearchData] = useState<SearchResult | null>(null);
   const [searching, setSearching] = useState(false);
   const [selecting, setSelecting] = useState<RecommendationSummaryRow | Hospital | null>(null);
   const [selectReason, setSelectReason] = useState('');
+  const [etaDrafts, setEtaDrafts] = useState<Record<string, string>>({});
 
   const incidentQuery = useQuery({
     queryKey: ['incident', id],
@@ -97,6 +112,45 @@ export default function IncidentDetailPage() {
     queryClient.invalidateQueries({ queryKey: ['incidents'] });
   }
 
+  async function captureCaseLocation() {
+    setLocatingCase(true);
+    try {
+      const position = await getCurrentLocation();
+      setLocationDraft({
+        latitude: position.latitude.toFixed(6),
+        longitude: position.longitude.toFixed(6),
+      });
+      toast.success('Location captured. Save it to update this case.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to retrieve location');
+    } finally {
+      setLocatingCase(false);
+    }
+  }
+
+  async function saveLocation() {
+    const latitude = Number(locationDraft.latitude);
+    const longitude = Number(locationDraft.longitude);
+    if (!isValidCoordinate(latitude, longitude)) {
+      toast.error('Enter a valid latitude (-90 to 90) and longitude (-180 to 180).');
+      return;
+    }
+    setSavingLocation(true);
+    try {
+      await api(`/incidents/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ latitude, longitude }),
+      });
+      setEditingLocation(false);
+      toast.success('Patient location updated. Generate new recommendations to use it.');
+      invalidate();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to update location');
+    } finally {
+      setSavingLocation(false);
+    }
+  }
+
   async function doSearch() {
     if (!incident) return;
     setSearching(true);
@@ -113,7 +167,10 @@ export default function IncidentDetailPage() {
   }
 
   const generateMutation = useMutation({
-    mutationFn: () => api<Recommendation>(`/incidents/${id}/recommendations`, { method: 'POST', body: JSON.stringify({ searchRadiusKm: Number(radiusKm) || 25 }) }),
+    mutationFn: () => api<Recommendation>(`/incidents/${id}/recommendations`, {
+      method: 'POST',
+      body: JSON.stringify({ searchRadiusKm: Number(radiusKm) || 25, notes: searchRequirements.trim() || undefined }),
+    }),
     onSuccess: () => {
       toast.success('Recommendations generated');
       queryClient.invalidateQueries({ queryKey: ['recommendation', 'latest', id] });
@@ -156,6 +213,15 @@ export default function IncidentDetailPage() {
     mutationFn: (requestId: string) => api(`/hospital-requests/${requestId}/sync`, { method: 'POST', body: '{}' }),
     onSuccess: () => {
       toast.success('Alert status refreshed');
+      invalidate();
+    },
+  });
+
+  const etaMutation = useMutation({
+    mutationFn: ({ requestId, etaMinutes }: { requestId: string; etaMinutes: number }) =>
+      api(`/hospital-requests/${requestId}/eta`, { method: 'POST', body: JSON.stringify({ etaMinutes }) }),
+    onSuccess: () => {
+      toast.success('ETA sent to hospital portal');
       invalidate();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -207,9 +273,35 @@ export default function IncidentDetailPage() {
                 {incident.patient?.suspectedCondition ? <p className="mt-2 text-xs"><span className="font-semibold">Condition:</span> {incident.patient.suspectedCondition}</p> : null}
               </div>
               <div className="rounded-lg border bg-slate-50 p-3 text-sm">
-                <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Location</p>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Location</p>
+                  {canUpdate && !editingLocation ? (
+                    <button type="button" className="btn-ghost h-6 px-2 text-[11px]" onClick={() => { setLocationDraft({ latitude: String(incident.latitude), longitude: String(incident.longitude) }); setEditingLocation(true); }}>
+                      Update
+                    </button>
+                  ) : null}
+                </div>
                 <p className="mt-1 font-medium text-slate-800"><MapPin className="mr-1 inline h-3.5 w-3.5" />{incident.address || 'Address not provided'}</p>
                 <p className="mt-1 font-mono text-xs text-muted-foreground">{incident.latitude.toFixed(6)}, {incident.longitude.toFixed(6)}</p>
+                {editingLocation ? (
+                  <div className="mt-3 space-y-2 border-t pt-3">
+                    <div className="grid grid-cols-2 gap-2">
+                      <input aria-label="Latitude" className="input-base h-8 px-2 font-mono text-xs" type="number" step="any" min={-90} max={90} value={locationDraft.latitude} onChange={(e) => setLocationDraft((current) => ({ ...current, latitude: e.target.value }))} />
+                      <input aria-label="Longitude" className="input-base h-8 px-2 font-mono text-xs" type="number" step="any" min={-180} max={180} value={locationDraft.longitude} onChange={(e) => setLocationDraft((current) => ({ ...current, longitude: e.target.value }))} />
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button type="button" className="btn-secondary h-7 px-2 text-[11px]" onClick={captureCaseLocation} disabled={locatingCase}>
+                        {locatingCase ? <Loader2 className="mr-1 inline h-3 w-3 animate-spin" /> : <MapPin className="mr-1 inline h-3 w-3" />}
+                        Use my location
+                      </button>
+                      <button type="button" className="btn-primary h-7 px-2 text-[11px]" onClick={saveLocation} disabled={savingLocation}>
+                        {savingLocation ? 'Saving…' : 'Save location'}
+                      </button>
+                      <button type="button" className="btn-ghost h-7 px-2 text-[11px]" onClick={() => setEditingLocation(false)}>Cancel</button>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">Saved coordinates are used for the next hospital search and recommendation.</p>
+                  </div>
+                ) : null}
               </div>
             </div>
             <dl className="mt-4 space-y-2 text-sm">
@@ -239,7 +331,7 @@ export default function IncidentDetailPage() {
                 onChange={setSearchRequirements}
                 rows={2}
                 placeholder="Type or dictate special requirements (e.g. trauma center, pediatric ICU, burn unit, ventilator availability)..."
-                hint="Use voice or type to capture search requirements. Hospital suitability is determined from available hospital data and selected capability requirements."
+                hint="Use voice or type to capture requirements; they refine the next recommendation. Hospital suitability is still determined from live hospital capability data."
               />
             </div>
             <div className="mb-4 flex flex-wrap items-end gap-3">
@@ -304,6 +396,17 @@ export default function IncidentDetailPage() {
 
             {recommendation ? (
               <div className="space-y-4">
+                {recommendation.aiSuggestion ? (
+                  <div className="rounded-lg border border-primary/30 bg-accent/40 p-3">
+                    <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-primary">
+                      <Sparkles className="h-3.5 w-3.5" /> AI suggested destination (decision support only)
+                    </p>
+                    <p className="mt-1 text-sm text-slate-800">{recommendation.aiSuggestion.summary}</p>
+                    {recommendation.aiSuggestion.rationale ? (
+                      <p className="mt-1 text-xs text-slate-700">{recommendation.aiSuggestion.rationale}</p>
+                    ) : null}
+                  </div>
+                ) : null}
                 {integrationNotices(recommendation).map((n, i) => (
                   <Notice key={i} tone={/mock|simulated|demo|estimated|rule-based|unconfigured/i.test(n) ? 'warning' : 'info'}>{n}</Notice>
                 ))}
@@ -450,6 +553,28 @@ export default function IncidentDetailPage() {
                         </div>
                       </div>
                       {req.responseMessage ? <p className="mt-2 text-xs text-slate-700">{req.responseMessage}</p> : null}
+                      {canAlert && req.sentAt ? (
+                        <div className="mt-2 flex items-center gap-2">
+                          <input
+                            type="number"
+                            min={0}
+                            max={1440}
+                            className="input-base h-8 w-24 py-1 text-xs"
+                            placeholder="ETA (min)"
+                            value={etaDrafts[req.id] ?? ''}
+                            onChange={(event) => setEtaDrafts((current) => ({ ...current, [req.id]: event.target.value }))}
+                          />
+                          <button
+                            type="button"
+                            className="btn-secondary h-8 px-3 text-xs"
+                            disabled={etaMutation.isPending || !etaDrafts[req.id]}
+                            onClick={() => etaMutation.mutate({ requestId: req.id, etaMinutes: Number(etaDrafts[req.id]) })}
+                          >
+                            {etaMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                            Send ETA
+                          </button>
+                        </div>
+                      ) : null}
                       <p className="mt-1 text-[10px] uppercase tracking-wide text-slate-400">
                         {req.isMock ? 'Demo/simulated alert' : 'Live alert'} · raw {req.status}{req.etaMinutes != null ? ` · ETA ${req.etaMinutes} min` : ''}
                       </p>

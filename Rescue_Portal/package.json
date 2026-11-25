@@ -8,7 +8,9 @@
     "apps/web"
   ],
   "scripts": {
-    "dev": "concurrently -n api,web -c cyan,green \"npm run dev -w @rescue/api\" \"npm run dev -w @rescue/web\"",
+    "dev": "concurrently -n api,web,hospital -c cyan,green,magenta \"npm run dev -w @rescue/api\" \"npm run dev -w @rescue/web\" \"npm run dev:hospital\"",
+    "dev:hospital": "npm --prefix ../Hospital_Portal run dev",
+    "dev:hospital-mock": "node tools/hospital-portal/server.mjs",
     "build": "npm run build -w @rescue/api && npm run build -w @rescue/web",
     "test": "npm run test -w @rescue/api && npm run test -w @rescue/web",
     "test:api": "npm run test -w @rescue/api",

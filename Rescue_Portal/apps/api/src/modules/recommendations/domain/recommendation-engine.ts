@@ -5,7 +5,7 @@ import { haversineDistanceKm } from '../../../common/utils/distance.util';
 import { assessFreshness, type FreshnessResult } from '../../../common/utils/freshness.util';
 import type { HospitalCapability } from '../../../integrations/hospital/hospital.types';
 
-export const RECOMMENDATION_POLICY_VERSION = '2026-11-13.1';
+export const RECOMMENDATION_POLICY_VERSION = '2026-11-24.1';
 
 export interface RecommendationPolicy {
   version: string;

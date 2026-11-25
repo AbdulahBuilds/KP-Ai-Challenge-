@@ -57,6 +57,9 @@ const HospitalSchema = new mongoose.Schema({
   address: { type: String, default: "" },
   phone: { type: String, default: "" },
   emergencyPhone: { type: String, default: "" },
+  latitude: { type: Number, required: true },
+  longitude: { type: Number, required: true },
+  locationSource: { type: String, default: "" },
   adminName: { type: String, default: "" },
   adminEmail: { type: String, default: "" },
   resources: {
@@ -104,6 +107,8 @@ const EmergencyAlertSchema = new mongoose.Schema({
   vitals: { type: String, default: "" },
   status: { type: String, enum: ["ALERT_RECEIVED", "ACKNOWLEDGED", "FACILITIES_CONFIRMED"], default: "ALERT_RECEIVED" },
   confirmedFacilities: { type: [String], default: [] },
+  idempotencyKey: { type: String, default: null, index: true, sparse: true },
+  etaUpdatedAt: { type: Date, default: null },
   createdAt: { type: Date, default: Date.now },
   acknowledgedAt: { type: Date, default: null }
 }, { timestamps: true });

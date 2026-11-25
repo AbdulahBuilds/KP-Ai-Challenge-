@@ -33,6 +33,8 @@ type ExplainedEvaluation = CandidateEvaluation & {
   explanation?: string;
   explanationSource?: string;
   explanationMode?: 'ai' | 'rule_based';
+  aiRank?: number | null;
+  aiRationale?: string | null;
 };
 
 @Injectable()
@@ -76,15 +78,34 @@ export class RecommendationsService {
   async generate(user: AuthUser, incidentId: string, dto: GenerateRecommendationsDto) {
     const incident = await this.findIncident(user, incidentId);
     const requiredCapabilities = this.capabilityList(dto.requiredCapabilities, incident.requiredCapabilities);
-    const searchRadiusKm = dto.searchRadiusKm ?? 30;
+    const notes = dto.notes?.trim() || null;
+    if (notes) {
+      const suggested = await this.ai.suggestCapabilities(notes);
+      for (const code of suggested.suggestions.filter((item) => item.confidence >= 0.55).map((item) => item.code)) {
+        if (CAPABILITY_CODES.has(code) && !requiredCapabilities.includes(code)) requiredCapabilities.push(code);
+      }
+    }
+    const maxRadiusKm = Number(this.config.get<string>('RECOMMENDATION_MAX_RADIUS_KM', '100')) || 100;
+    const searchRadiusKm = Math.min(dto.searchRadiusKm ?? 30, maxRadiusKm);
     const maxAgeSeconds = Number(this.config.get<string>('HOSPITAL_DATA_MAX_AGE_SECONDS', '300'));
 
-    const search = await this.hospitals.search(user, {
+    let search = await this.hospitals.search(user, {
       latitude: incident.latitude,
       longitude: incident.longitude,
       radiusKm: searchRadiusKm,
       limit: 25,
     });
+    let usedNearestFallback = false;
+    let noAvailableHospitals = false;
+    if (search.data.length === 0) {
+      search = await this.hospitals.searchAllAvailable(user, {
+        latitude: incident.latitude,
+        longitude: incident.longitude,
+        limit: 25,
+      });
+      usedNearestFallback = search.data.length > 0;
+      noAvailableHospitals = search.data.length === 0;
+    }
     const hospitals = search.data;
     const [routes, capabilityResults] = await Promise.all([
       this.maps.getRoutesWithFallback(
@@ -140,12 +161,42 @@ export class RecommendationsService {
       policy: DEFAULT_RECOMMENDATION_POLICY,
     });
 
+    const ranking = await this.ai.rankHospitals({
+      severity: incident.severity,
+      emergencyType: incident.emergencyType,
+      requiredCapabilities,
+      candidates: evaluations.map((evaluation) => ({
+        hospitalExternalId: evaluation.hospitalExternalId,
+        hospitalName: evaluation.hospitalName,
+        eligibility: evaluation.eligibility,
+        score: evaluation.score,
+        distanceKm: evaluation.distanceKm,
+        etaMinutes: evaluation.etaMinutes,
+        freshnessStatus: evaluation.freshness.status,
+        matchedCapabilities: evaluation.matchedCapabilities,
+        capabilityEvaluations: evaluation.capabilityEvaluations.map((capability) => ({
+          code: capability.code,
+          status: capability.status,
+          quantity: capability.quantity,
+          note: capability.note,
+        })),
+        dataSource: evaluation.dataSource,
+      })),
+    });
+    const rankByHospitalId = new Map(ranking.orderedHospitalIds.map((id, index) => [id, index + 1]));
+    const aiRank = (evaluation: CandidateEvaluation) => rankByHospitalId.get(evaluation.hospitalExternalId) ?? null;
+
     const aiStatus = this.ai.status();
     const usingRuleBased = aiStatus.adapter === 'heuristic' || aiStatus.adapter === 'rule-based';
 
     const explained: ExplainedEvaluation[] = await Promise.all(
       evaluations.map(async (evaluation, index) => {
-        if (index >= 10) return evaluation;
+        const ranked: ExplainedEvaluation = {
+          ...evaluation,
+          aiRank: aiRank(evaluation),
+          aiRationale: ranking.rationaleById[evaluation.hospitalExternalId] ?? null,
+        };
+        if (index >= 10) return ranked;
         const explanation = await this.ai.explainRecommendation({
           hospitalName: evaluation.hospitalName,
           eligibility: evaluation.eligibility,
@@ -162,7 +213,7 @@ export class RecommendationsService {
         });
         const mode = explanation.source === 'heuristic' ? 'rule_based' : 'ai';
         return {
-          ...evaluation,
+          ...ranked,
           explanation: explanation.text,
           explanationSource: explanation.source,
           explanationMode: mode,
@@ -170,16 +221,38 @@ export class RecommendationsService {
       }),
     );
 
+    explained.sort((a, b) => (a.aiRank ?? Number.MAX_SAFE_INTEGER) - (b.aiRank ?? Number.MAX_SAFE_INTEGER));
+
     const counts = countByEligibility(explained);
+    const policy = {
+      ...DEFAULT_RECOMMENDATION_POLICY,
+      searchRadiusKm,
+      usedNearestFallback,
+      usedFallbackSearch: usedNearestFallback,
+      nearestAvailableDistanceKm: hospitals[0]?.distanceKm ?? null,
+      noPortalDataNearLocation: noAvailableHospitals,
+    };
     const hospitalIntegration = this.hospitals.status();
     const mapsStatus = this.maps.status;
     const dataSource = hospitalIntegration.isMock ? 'MOCK' : 'LIVE';
+    const suggested = explained.find((evaluation) => evaluation.hospitalExternalId === ranking.suggestedHospitalId) ?? null;
+    const aiSuggestion = {
+      hospitalExternalId: ranking.suggestedHospitalId,
+      hospitalName: suggested?.hospitalName ?? null,
+      summary: ranking.summary,
+      rationale: ranking.suggestedHospitalId ? ranking.rationaleById[ranking.suggestedHospitalId] ?? null : null,
+      source: ranking.source,
+      mode: ranking.source === 'heuristic' ? 'rule_based' : 'ai',
+    };
     const recommendation = await this.prisma.hospitalRecommendation.create({
       data: {
         incidentId: incident.id,
         policyVersion: RECOMMENDATION_POLICY_VERSION,
-        policy: DEFAULT_RECOMMENDATION_POLICY as unknown as Prisma.InputJsonValue,
+        policy: policy as unknown as Prisma.InputJsonValue,
         results: explained as unknown as Prisma.InputJsonValue,
+        suggestedHospitalId: aiSuggestion.hospitalExternalId,
+        aiSuggestion: aiSuggestion as unknown as Prisma.InputJsonValue,
+        notes,
         candidateCount: explained.length,
         ...counts,
         dataSource,
@@ -196,10 +269,17 @@ export class RecommendationsService {
         incidentId: incident.id,
         caseNumber: incident.caseNumber,
         requiredCapabilities,
+        notes,
         ...counts,
         dataSource,
         mapsSource: mapsStatus.provider,
+        searchRadiusKm,
+        usedNearestFallback,
+        nearestAvailableDistanceKm: hospitals[0]?.distanceKm ?? null,
+        noAvailableHospitals,
         recommendationMode: usingRuleBased ? 'rule_based' : 'ai',
+        suggestedHospitalId: aiSuggestion.hospitalExternalId,
+        aiSuggestionSource: aiSuggestion.source,
       },
     });
 
@@ -218,15 +298,29 @@ export class RecommendationsService {
     if (usingRuleBased) {
       warnings.push('Recommendations are generated using a transparent rule-based method (AI provider not configured).');
     }
+    if (usedNearestFallback) {
+      const nearestDistance = hospitals[0]?.distanceKm;
+      warnings.push(
+        `No Hospital Portal data was found within ${searchRadiusKm} km. Recommending the nearest ${hospitals.length} hospital(s) available in the Hospital Portal data${nearestDistance === undefined ? '' : ` (nearest ${nearestDistance.toFixed(1)} km away)`}. Distances and ETAs are estimates; confirm transport feasibility before dispatch.`,
+      );
+    }
+    if (noAvailableHospitals) {
+      warnings.push(
+        'No hospitals are available in the Hospital Portal data source. No hospital can be recommended; check the data source or contact dispatch directly.',
+      );
+    }
 
     return {
       id: recommendation.id,
       incidentId: incident.id,
       caseNumber: incident.caseNumber,
       policyVersion: RECOMMENDATION_POLICY_VERSION,
-      policy: DEFAULT_RECOMMENDATION_POLICY,
+      policy,
       requiredCapabilities,
+      notes,
       results: explained,
+      suggestedHospitalId: aiSuggestion.hospitalExternalId,
+      aiSuggestion,
       candidateCount: explained.length,
       ...counts,
       dataSource,
@@ -242,6 +336,17 @@ export class RecommendationsService {
         'Decision support only. Recommendations do not diagnose patients and do not automatically select a hospital. Rescue Admin must make the final decision.',
       generatedAt: recommendation.createdAt.toISOString(),
     };
+  }
+
+  async generateAfterSubmission(user: AuthUser, incidentId: string) {
+    try {
+      const result = await this.generate(user, incidentId, {});
+      this.logger.log(`Generated post-submission AI recommendation ${result.id} for case ${incidentId}`);
+      return result;
+    } catch (error) {
+      this.logger.warn(`Post-submission recommendation failed for case ${incidentId}: ${(error as Error).message}`);
+      return null;
+    }
   }
 
   async list(user: AuthUser, incidentId: string, query: { page?: string; pageSize?: string }) {

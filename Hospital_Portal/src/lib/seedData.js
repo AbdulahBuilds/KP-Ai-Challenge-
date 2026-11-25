@@ -8,6 +8,9 @@ export const initialHospitals = [
     address: "GT Road, Soekarno Chowk, Peshawar, Khyber Pakhtunkhwa",
     phone: "+92-91-9211430",
     emergencyPhone: "+92-91-9211440",
+    latitude: 34.0106,
+    longitude: 71.5688,
+    locationSource: "OpenStreetMap / Google Maps verified 2026-11-24",
     adminName: "Dr. Khalid Masood (Medical Director)",
     adminEmail: "staff@lrh.gov.pk",
     resources: {
@@ -75,6 +78,9 @@ export const initialHospitals = [
     address: "Phase 4, Hayatabad, Peshawar, Khyber Pakhtunkhwa",
     phone: "+92-91-9217140",
     emergencyPhone: "+92-91-9217150",
+    latitude: 33.9925,
+    longitude: 71.4497,
+    locationSource: "OpenStreetMap / Google Maps verified 2026-11-24",
     adminName: "Dr. Shehzad Akbar (Medical Superintendent)",
     adminEmail: "staff@hmc.gov.pk",
     resources: {
@@ -142,6 +148,9 @@ export const initialHospitals = [
     address: "Karakoram Highway, Abbottabad, Khyber Pakhtunkhwa",
     phone: "+92-992-381907",
     emergencyPhone: "+92-992-381910",
+    latitude: 34.2043,
+    longitude: 73.2385,
+    locationSource: "Wikipedia / OpenStreetMap verified 2026-11-24",
     adminName: "Dr. Athar Lodhi (Medical Director)",
     adminEmail: "staff@ath.gov.pk",
     resources: {
@@ -209,6 +218,9 @@ export const initialHospitals = [
     address: "Bank Road, Mardan, Khyber Pakhtunkhwa",
     phone: "+92-937-9230214",
     emergencyPhone: "+92-937-9230220",
+    latitude: 34.1911,
+    longitude: 72.0457,
+    locationSource: "Google Maps verified 2026-11-24",
     adminName: "Dr. Javed Iqbal (Medical Superintendent)",
     adminEmail: "staff@dhqmardan.gov.pk",
     resources: {

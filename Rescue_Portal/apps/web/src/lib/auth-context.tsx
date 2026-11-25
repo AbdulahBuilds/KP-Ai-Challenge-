@@ -32,6 +32,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .then((session) => {
         if (active && session) setUser(session.user);
       })
+      .catch(() => undefined)
       .finally(() => {
         if (active) setLoading(false);
       });

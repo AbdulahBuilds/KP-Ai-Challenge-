@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 import { Crosshair, Loader2, Save } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
+import { getCurrentLocation, isValidCoordinate } from '@/lib/geolocation';
 import { useAuth } from '@/lib/auth-context';
 import { CAPABILITY_GROUPS, EMERGENCY_TYPES, PERMISSIONS, SEVERITIES } from '@/lib/constants';
 import { hasPermission, titleCase } from '@/lib/utils';
@@ -17,6 +18,8 @@ export default function NewIncidentPage() {
   const { user } = useAuth();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [locationError, setLocationError] = useState('');
+  const [locationCaptured, setLocationCaptured] = useState('');
   const [locating, setLocating] = useState(false);
   const [form, setForm] = useState({
     emergencyType: 'MEDICAL',
@@ -45,52 +48,37 @@ export default function NewIncidentPage() {
     );
   }
 
-  function locate() {
-    if (!navigator.geolocation) {
-      setError('Geolocation is not available in this browser. Enter coordinates manually.');
-      return;
-    }
-    if (!isSecureContext() && window.location.hostname !== 'localhost') {
-      setError('Location access requires a secure connection (HTTPS/localhost). Enter coordinates manually.');
-      return;
-    }
+  async function locate() {
     setLocating(true);
-    setError('');
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        update('latitude', position.coords.latitude.toFixed(6));
-        update('longitude', position.coords.longitude.toFixed(6));
-        setLocating(false);
-      },
-      (err) => {
-        setLocating(false);
-        switch (err.code) {
-          case err.PERMISSION_DENIED:
-            setError('Location permission was denied. Enable location access or enter coordinates manually.');
-            break;
-          case err.POSITION_UNAVAILABLE:
-            setError('Location information is unavailable. Enter coordinates manually.');
-            break;
-          case err.TIMEOUT:
-            setError('Location request timed out. Enter coordinates manually.');
-            break;
-          default:
-            setError('Unable to retrieve location. Enter coordinates manually.');
-        }
-      },
-      { enableHighAccuracy: true, timeout: 15_000, maximumAge: 60_000 },
-    );
-  }
-
-  function isSecureContext(): boolean {
-    return typeof window !== 'undefined' && window.isSecureContext === true;
+    setLocationError('');
+    setLocationCaptured('');
+    try {
+      const position = await getCurrentLocation();
+      update('latitude', position.latitude.toFixed(6));
+      update('longitude', position.longitude.toFixed(6));
+      setLocationCaptured(
+        `Location captured: ${position.latitude.toFixed(6)}, ${position.longitude.toFixed(6)}${
+          position.accuracyMeters === null ? '' : ` (±${Math.round(position.accuracyMeters)} m)`
+        }`,
+      );
+    } catch (error) {
+      setLocationError(error instanceof Error ? error.message : 'Unable to retrieve location. Enter coordinates manually.');
+    } finally {
+      setLocating(false);
+    }
   }
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
     setError('');
-    if (!form.latitude || !form.longitude) {
-      setError("Patient's current location (latitude and longitude) is required.");
+    const latitude = Number(form.latitude);
+    const longitude = Number(form.longitude);
+    if (
+      !form.latitude.trim() ||
+      !form.longitude.trim() ||
+      !isValidCoordinate(latitude, longitude)
+    ) {
+      setError('Enter a valid latitude (-90 to 90) and longitude (-180 to 180), or use "Use my location".');
       return;
     }
     setSubmitting(true);
@@ -103,8 +91,8 @@ export default function NewIncidentPage() {
         body: JSON.stringify({
           emergencyType: form.emergencyType,
           severity: form.severity,
-          latitude: Number(form.latitude),
-          longitude: Number(form.longitude),
+          latitude,
+          longitude,
           address: form.address || undefined,
           requiredCapabilities: capabilities,
           patient: {
@@ -135,10 +123,11 @@ export default function NewIncidentPage() {
       <PageHeader
         eyebrow="Emergency intake"
         title="New emergency case"
-        description="Enter emergency details and submit. Voice-to-text is available for key fields and never auto-submits."
+        description="Enter emergency details and submit. Voice-to-text and location capture are available. The right hospital is recommended from live Hospital Portal data and a pre-arrival alert is sent automatically."
       />
       <form onSubmit={onSubmit} className="grid gap-6 xl:grid-cols-[1.55fr_1fr]">
         <div className="space-y-6">
+          {locationError ? <ErrorBox message={locationError} /> : null}
           {error ? <ErrorBox message={error} /> : null}
 
           <section className="card-surface p-5">
@@ -163,9 +152,10 @@ export default function NewIncidentPage() {
               <p className="text-xs text-muted-foreground">Patient&apos;s current location is required for nearby hospital search and distance/ETA.</p>
               <button type="button" className="btn-secondary h-8 px-3 text-xs" onClick={locate} disabled={locating}>
                 {locating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Crosshair className="h-3.5 w-3.5" />}
-                Use my location
+                {locating ? 'Locating…' : 'Use my location'}
               </button>
             </div>
+            {locationCaptured ? <p className="mt-2 text-xs font-medium text-emerald-700">{locationCaptured}</p> : null}
             <div className="mt-3 grid gap-4 sm:grid-cols-2">
               <Field label="Latitude" required>
                 <input className="input-base font-mono" type="number" step="any" min={-90} max={90} required value={form.latitude} onChange={(e) => update('latitude', e.target.value)} placeholder="e.g. 31.5204" />
@@ -257,7 +247,7 @@ export default function NewIncidentPage() {
           <section className="card-surface p-5">
             <h2 className="font-semibold text-slate-900">Submit emergency</h2>
             <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              Submitting creates the emergency case. Hospital search, recommendations, destination selection, and pre-arrival alert are separate explicit actions on the case page.
+              Submitting creates the emergency case, recommends the best eligible hospital from live Hospital Portal data, selects it, and sends the pre-arrival alert. You can still review or change the destination on the case page.
             </p>
             <button type="submit" className="btn-primary mt-4 w-full" disabled={submitting}>
               {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}

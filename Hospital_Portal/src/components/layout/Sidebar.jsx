@@ -92,6 +92,33 @@ export default function Sidebar({
           icon: Settings,
         },
       ]
+    },
+    {
+      title: 'Provincial Network Portals',
+      items: [
+        {
+          id: 'switch-bhu',
+          label: 'BHU Referral Portal',
+          icon: Activity,
+          href: '/bhu',
+          badge: (
+            <span className="ml-auto bg-teal-100 text-teal-800 text-[10px] font-bold px-1.5 py-0.5 rounded">
+              /bhu
+            </span>
+          )
+        },
+        {
+          id: 'switch-rescue',
+          label: 'Rescue 1122 CAD Portal',
+          icon: Siren,
+          href: '/rescue',
+          badge: (
+            <span className="ml-auto bg-red-100 text-red-800 text-[10px] font-bold px-1.5 py-0.5 rounded">
+              /rescue
+            </span>
+          )
+        }
+      ]
     }
   ];
 
@@ -147,6 +174,21 @@ export default function Sidebar({
                 {section.items.map((item) => {
                   const Icon = item.icon;
                   const isActive = activeTab === item.id;
+
+                  if (item.href) {
+                    return (
+                      <a
+                        key={item.id}
+                        href={item.href}
+                        className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-all text-left group text-slate-600 hover:text-typography-primary hover:bg-slate-100/70"
+                      >
+                        <Icon className="w-4 h-4 flex-shrink-0 text-slate-400 group-hover:text-slate-600" />
+                        <span className="truncate">{item.label}</span>
+                        {item.badge}
+                      </a>
+                    );
+                  }
+
                   return (
                     <button
                       key={item.id}

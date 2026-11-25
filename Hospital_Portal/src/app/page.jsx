@@ -2360,6 +2360,11 @@ export default function HospitalPortal() {
                       <span className="text-[10px] text-teal-800 font-bold bg-teal-50 border border-teal-200 px-2 py-0.5 rounded">
                         {aiAnalysis.aiModel || "Gemini 1.5"}
                       </span>
+                      {aiAnalysis.esiLevel && (
+                        <span className="text-[10px] font-extrabold px-2 py-0.5 rounded bg-indigo-100 text-indigo-900 border border-indigo-200">
+                          ESI {aiAnalysis.esiLevel}
+                        </span>
+                      )}
                       <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full ${
                         aiAnalysis.urgencyLevel === 'CRITICAL' ? 'bg-emergency-600 text-white' :
                         aiAnalysis.urgencyLevel === 'HIGH' ? 'bg-amber-500 text-white' :

@@ -6,13 +6,16 @@
   "scripts": {
     "dev": "npm run dev:hospital",
     "dev:hospital": "npm --prefix Hospital_Portal run dev",
+    "dev:bhu": "npm --prefix BHU_Portal run dev",
+    "dev:portals": "concurrently -n \"HOSPITAL,BHU\" -c \"blue.bold,cyan.bold\" \"npm --prefix Hospital_Portal run dev\" \"npm --prefix BHU_Portal run dev\"",
     "dev:rescue": "concurrently -n \"RESCUE-API,RESCUE-WEB\" -c \"cyan.bold,green.bold\" \"npm --prefix Rescue_Portal/apps/api run dev\" \"npm --prefix Rescue_Portal/apps/web run dev\"",
     "dev:rescue:api": "npm --prefix Rescue_Portal/apps/api run dev",
     "dev:rescue:web": "npm --prefix Rescue_Portal/apps/web run dev",
-    "dev:all": "concurrently -n \"HOSPITAL,RESCUE-API,RESCUE-WEB\" -c \"blue.bold,cyan.bold,green.bold\" \"npm --prefix Hospital_Portal run dev\" \"npm --prefix Rescue_Portal/apps/api run dev\" \"npm --prefix Rescue_Portal/apps/web run dev\"",
+    "dev:all": "concurrently -n \"HOSPITAL,BHU,RESCUE-API,RESCUE-WEB\" -c \"blue.bold,cyan.bold,yellow.bold,green.bold\" \"npm --prefix Hospital_Portal run dev\" \"npm --prefix BHU_Portal run dev\" \"npm --prefix Rescue_Portal/apps/api run dev\" \"npm --prefix Rescue_Portal/apps/web run dev\"",
     "build:hospital": "npm --prefix Hospital_Portal run build",
+    "build:bhu": "npm --prefix BHU_Portal run build",
     "build:rescue": "npm --prefix Rescue_Portal run build",
-    "build:all": "npm run build:hospital && npm run build:rescue"
+    "build:all": "npm run build:hospital && npm run build:bhu && npm run build:rescue"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

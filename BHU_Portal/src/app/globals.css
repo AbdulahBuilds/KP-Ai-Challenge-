@@ -1,0 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    color-scheme: light;
+    background-color: #f8fafc;
+  }
+
+  body {
+    @apply bg-slate-50 text-typography-primary antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+    background-color: #f8fafc;
+  }
+
+  h1 {
+    @apply text-2xl font-bold text-typography-primary tracking-tight;
+  }
+
+  h2 {
+    @apply text-lg font-semibold text-typography-primary tracking-tight;
+  }
+
+  h3 {
+    @apply text-base font-semibold text-typography-primary tracking-tight;
+  }
+
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type="number"] {
+    -moz-appearance: textfield;
+  }
+}
+
+/* Print Styles for Official Referral Slip */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #printable-referral-slip,
+  #printable-referral-slip * {
+    visibility: visible;
+  }
+  #printable-referral-slip {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    padding: 24px;
+    background: white;
+    box-shadow: none !important;
+    border: none !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+}
+

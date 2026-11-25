@@ -30,55 +30,38 @@ The **BHU Portal** is the entry-point clinical referral system for Basic Health 
 
 ---
 
-## 📡 Cross-Portal API Contracts with Hospital Portal
+## ⚡ Fast 2-Tab User Experience
 
-When referring a patient to a hospital, the BHU Portal interacts with the Hospital Portal's public integration endpoints:
+Designed specifically for rural BHU doctors to complete referrals in under 45 seconds:
 
-### 1. Check Hospital Capacity & Bed Availability
-* **Method:** `GET`
-* **Endpoint:** `http://<hospital-portal-host>:3000/api/resources/public`
-* **Response:** Real-time snapshot of available ICU beds, general beds, ventilators, and blood stocks across all KPK hospitals.
+- **Tab 1: New Patient Referral & AI Matcher (`/`)**
+  - Rapid clinical vitals strip (BP, Pulse, SpO2, Temp).
+  - 1-click clinical presets for common emergencies (Chest Pain / STEMI, Obstructed Labor, Head Trauma, Asthma, Sepsis).
+  - Live AI Hospital Matcher: Auto-evaluates patient diagnosis against real-time ICU beds, operational ventilators, and on-duty specialists across KPK hospitals.
+  - One-click submission to hospital triage bay with optional Rescue 1122 ambulance dispatch.
 
-### 2. Submit Inbound Patient Referral
-* **Method:** `POST`
-* **Endpoint:** `http://<hospital-portal-host>:3000/api/referrals`
-* **Headers:** `Content-Type: application/json`
-* **Payload Structure:**
-```json
-{
-  "patientName": "Khan Wali",
-  "age": 45,
-  "gender": "Male",
-  "referringFacility": "BHU Chamkani, Peshawar",
-  "targetHospitalId": "lrh-peshawar",
-  "department": "Cardiology",
-  "urgency": "EMERGENT",
-  "provisionalDiagnosis": "Acute ST-Elevation Myocardial Infarction",
-  "vitals": {
-    "bp": "85/55",
-    "hr": 128,
-    "spo2": "91%",
-    "temp": "98.6F"
-  },
-  "requiredFacilities": [
-    "Cath Lab / Emergency Angioplasty",
-    "Cardiac ICU",
-    "Heparin / Antiplatelet Protocol"
-  ],
-  "clinicalNotes": "Severe retrosternal crushing pain radiating to left arm. Refractory to sublingual nitroglycerin."
-}
-```
+- **Tab 2: Sent Referrals & Slips**
+  - Real-time status tracking (`Accepted`, `Pending`, `Declined`).
+  - Formal Printable **Electronic Referral Slip (Emergency Parchi)** formatted with KPK Health Department insignia, diagnostic summary, and scannable QR verification code.
+  - 1-click Re-route button if receiving hospital is full.
 
 ---
 
-## 📁 Recommended Project Structure
-```text
-BHU_Portal/
-├── src/
-│   ├── app/            # Next.js App Router (Patient records, referrals, triage)
-│   ├── components/     # UI components and forms
-│   └── lib/            # API client for Hospital Portal integration
-├── package.json
-└── README.md
+## 🚀 Running the BHU Portal
+
+### From Root Monorepo:
+```bash
+# Run BHU Portal on Port 3002
+npm run dev:bhu
+
+# Or run all 3 portals together
+npm run dev:all
 ```
 
+### Directly from BHU_Portal folder:
+```bash
+cd BHU_Portal
+npm run dev
+```
+
+Open **[http://localhost:3002](http://localhost:3002)** in your browser.

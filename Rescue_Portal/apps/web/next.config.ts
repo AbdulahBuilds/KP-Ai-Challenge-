@@ -3,6 +3,7 @@ import type { NextConfig } from 'next';
 const nextConfig: NextConfig = {
   output: 'standalone',
   reactStrictMode: true,
+  basePath: '/rescue',
   eslint: { ignoreDuringBuilds: true },
   async headers() {
     return [

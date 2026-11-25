@@ -1,7 +1,95 @@
 /**
  * AI Clinical Triage & Resource Matcher for Government Hospital Portal
- * Uses Google Gemini API when GEMINI_API_KEY is available, with built-in clinical rule engine fallback.
+ * Uses Google Gemini API with production model fallback cascade & Zod schema validation,
+ * with built-in ATLS-aligned clinical rule engine fallback.
  */
+
+import { z } from 'zod';
+
+// Production Model Cascade: primary -> secondary -> fallback
+const GEMINI_MODELS = [
+  'gemini-2.5-flash',
+  'gemini-2.0-flash',
+  'gemini-1.5-flash',
+  'gemini-3-flash-preview'
+];
+
+// ---------------------------------------------------------------------------
+// Zod Schemas for Type-Safe AI Clinical Outputs
+// ---------------------------------------------------------------------------
+const ReferralTriageSchema = z.object({
+  urgencyLevel: z.enum(["CRITICAL", "HIGH", "MODERATE", "ROUTINE"]).default("HIGH"),
+  esiLevel: z.coerce.number().min(1).max(5).default(2),
+  clinicalImpression: z.string().default("Patient requires hospital admission and diagnostic workup."),
+  identifiedSpecialties: z.array(z.string()).default(["Emergency Medicine"]),
+  resourceMatchStatus: z.enum(["MATCHED", "DEFICIT_WARNING"]).default("MATCHED"),
+  resourceMatchExplanation: z.string().default("Hospital resources reviewed against clinical requirements."),
+  recommendedAction: z.enum(["ACCEPT", "DECLINE_REDIRECT"]).default("ACCEPT"),
+  recommendationReason: z.string().default("Hospital resources currently align with referral requirements."),
+  immediatePreparation: z.array(z.string()).default([
+    "Prepare resuscitation / triage observation bay",
+    "Establish IV access and baseline laboratory investigations",
+    "Alert on-duty resident medical officer"
+  ])
+});
+
+const TraumaAdviceSchema = z.object({
+  code: z.string().default("CODE AMBER (Emergency Intake)"),
+  primaryRisk: z.string().default("Acute physiological compromise & impending instability"),
+  etaUrgency: z.string().default("PREPARATORY WINDOW"),
+  bayChecklist: z.array(z.string()).default([
+    "Clear Resuscitation Bay 1 and prepare mechanical ventilator",
+    "Check emergency airway trolley (endotracheal tubes, video laryngoscope)",
+    "Notify on-duty trauma surgeon and emergency anesthesia team",
+    "Request immediate emergency O-Negative PRBC standby from blood bank"
+  ]),
+  bedNotice: z.string().default("Hospital trauma bay alerted and preparing for inbound ambulance arrival")
+});
+
+/**
+ * Helper to call Gemini with automated model fallback cascade
+ */
+async function callGeminiCascade(prompt, schema, apiKey) {
+  let lastError = null;
+
+  for (const model of GEMINI_MODELS) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            responseMimeType: "application/json",
+            temperature: 0.2
+          }
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (rawText) {
+          const parsed = JSON.parse(rawText);
+          const validated = schema.parse(parsed);
+          return {
+            success: true,
+            modelUsed: `Google Gemini (${model})`,
+            data: validated
+          };
+        }
+      } else {
+        const errText = await response.text().catch(() => '');
+        lastError = new Error(`Model ${model} returned HTTP ${response.status}: ${errText}`);
+      }
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  throw lastError || new Error("All Gemini cascade models failed");
+}
 
 export async function analyzeReferralWithAI({ referral, hospitalResources }) {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -30,44 +118,30 @@ HOSPITAL CURRENT LIVE RESOURCES:
   }
 - Key Services Status: Emergency (${hospitalResources?.services?.emergency}), ICU (${hospitalResources?.services?.icu}), OT (${hospitalResources?.services?.operationTheatre})
 
-Provide your clinical analysis in valid JSON format with exactly these keys:
+Provide your clinical analysis in valid JSON format strictly matching this schema:
 {
   "urgencyLevel": "CRITICAL" | "HIGH" | "MODERATE" | "ROUTINE",
+  "esiLevel": 1 | 2 | 3 | 4 | 5,
   "clinicalImpression": "1-2 sentence clinical assessment of the diagnosis and severity",
   "identifiedSpecialties": ["specialties needed e.g. Cardiology, Intensive Care"],
   "resourceMatchStatus": "MATCHED" | "DEFICIT_WARNING",
   "resourceMatchExplanation": "Explanation of whether the hospital currently has the beds, specialists, and equipment ready",
   "recommendedAction": "ACCEPT" | "DECLINE_REDIRECT",
   "recommendationReason": "Rationale for the recommendation",
-  "immediatePreparation": ["2-3 specific clinical steps hospital staff should take before arrival"]
+  "immediatePreparation": ["3 specific clinical steps hospital staff should take before arrival"]
 }
 `;
 
-  // 1. Try Gemini API if key is present
+  // 1. Try Gemini API Cascade if key is present
   if (apiKey) {
     try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { responseMimeType: "application/json" }
-        })
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (text) {
-          const parsed = JSON.parse(text);
-          return {
-            ...parsed,
-            aiModel: "Google Gemini 2.5 Flash (Live LLM)"
-          };
-        }
-      }
+      const cascadeResult = await callGeminiCascade(prompt, ReferralTriageSchema, apiKey);
+      return {
+        ...cascadeResult.data,
+        aiModel: cascadeResult.modelUsed
+      };
     } catch (err) {
-      console.warn("Gemini API call failed, falling back to clinical expert heuristic:", err.message);
+      console.warn("Hospital AI Gemini call failed, activating clinical rules engine:", err.message);
     }
   }
 
@@ -81,13 +155,19 @@ export function fallbackClinicalTriage(referral, hospitalResources) {
   const specialists = hospitalResources?.specialists || {};
 
   let urgencyLevel = "MODERATE";
+  let esiLevel = 3;
   let clinicalImpression = "Patient requires secondary hospital clinical evaluation and management.";
   let specialties = ["General Medicine"];
-  let immediatePrep = ["Assign triage bed in observation ward", "Establish IV access & baseline labs"];
+  let immediatePrep = [
+    "Assign triage bed in observation ward",
+    "Establish IV access & baseline laboratory investigations",
+    "Notify on-duty Medical Officer"
+  ];
 
   // Cardiac / STEMI detection
   if (sym.includes("chest pain") || sym.includes("stemi") || sym.includes("infarct") || sym.includes("cardiac") || sym.includes("troponin")) {
     urgencyLevel = "CRITICAL";
+    esiLevel = 1;
     clinicalImpression = "Suspected Acute Coronary Syndrome / STEMI. Immediate cardiac monitoring and primary PCI/CCU required.";
     specialties = ["Cardiology", "Cardiac Intensive Care"];
     immediatePrep = [
@@ -99,6 +179,7 @@ export function fallbackClinicalTriage(referral, hospitalResources) {
   // Stroke / Neurological detection
   else if (sym.includes("hemiplegia") || sym.includes("aphasia") || sym.includes("stroke") || sym.includes("facial droop") || sym.includes("gcs")) {
     urgencyLevel = "CRITICAL";
+    esiLevel = 1;
     clinicalImpression = "Acute Neurological Deficit / Suspected Ischemic Stroke within potential thrombolysis window.";
     specialties = ["Neurology", "Radiology / CT Scan", "ICU"];
     immediatePrep = [
@@ -110,6 +191,7 @@ export function fallbackClinicalTriage(referral, hospitalResources) {
   // Obstetric Hemorrhage detection
   else if (sym.includes("hemorrhage") || sym.includes("bleeding") || sym.includes("gestation") || sym.includes("placenta") || sym.includes("pregnant")) {
     urgencyLevel = "CRITICAL";
+    esiLevel = 1;
     clinicalImpression = "Obstetric Hemorrhage / Acute maternal-fetal compromise requiring urgent surgical intervention.";
     specialties = ["Obstetrics & Gynecology", "Emergency OT", "Blood Bank"];
     immediatePrep = [
@@ -119,8 +201,9 @@ export function fallbackClinicalTriage(referral, hospitalResources) {
     ];
   }
   // Respiratory failure
-  else if (sym.includes("dyspnea") || sym.includes("stridor") || sym.includes("spo2") || sym.includes("respiratory")) {
+  else if (sym.includes("dyspnea") || sym.includes("stridor") || sym.includes("spo2") || sym.includes("respiratory") || sym.includes("asthma")) {
     urgencyLevel = "HIGH";
+    esiLevel = 2;
     clinicalImpression = "Severe Respiratory Distress with hypoxemia. Close airway monitoring required.";
     specialties = ["Pulmonology", "ICU / Ventilator"];
     immediatePrep = [
@@ -133,7 +216,6 @@ export function fallbackClinicalTriage(referral, hospitalResources) {
   // Cross-reference with live hospital capacity
   const isIcuRequired = urgencyLevel === "CRITICAL" || sym.includes("icu");
   const icuAvailable = (beds.icuAvailable || 0) > 0;
-  const generalBedsAvailable = (beds.available || 0) > 0;
 
   // Check specialist availability
   let specialistOnDuty = true;
@@ -154,7 +236,7 @@ export function fallbackClinicalTriage(referral, hospitalResources) {
   }
 
   let resourceMatchStatus = "MATCHED";
-  let resourceMatchExplanation = `Verified hospital capacity: ${beds.available} general beds, ${beds.icuAvailable} ICU beds available. ${specialistName} is on duty.`;
+  let resourceMatchExplanation = `Verified hospital capacity: ${beds.available || 0} general beds, ${beds.icuAvailable || 0} ICU beds available. ${specialistName} is on duty.`;
   let recommendedAction = "ACCEPT";
   let recommendationReason = "Hospital facilities and specialist staff currently meet clinical requirements.";
 
@@ -172,6 +254,7 @@ export function fallbackClinicalTriage(referral, hospitalResources) {
 
   return {
     urgencyLevel,
+    esiLevel,
     clinicalImpression,
     identifiedSpecialties: specialties,
     resourceMatchStatus,
@@ -179,7 +262,7 @@ export function fallbackClinicalTriage(referral, hospitalResources) {
     recommendedAction,
     recommendationReason,
     immediatePreparation: immediatePrep,
-    aiModel: process.env.GEMINI_API_KEY ? "Gemini 1.5 Flash (Online)" : "KPK Healthcare Clinical Triage Engine"
+    aiModel: "KPK Hospital Clinical Triage Engine (Deterministic Fallback)"
   };
 }
 
@@ -188,19 +271,55 @@ export function fallbackClinicalTriage(referral, hospitalResources) {
  * ATLS (Advanced Trauma Life Support) aligned clinical advisory engine.
  */
 export async function generateEmergencyTraumaAIAdvice({ alert, hospitalResources }) {
-  const type = ((alert.emergencyType || "") + " " + (alert.vitals || "")).toLowerCase();
-  const reqFacilities = (alert.requiredFacilities || []).map(f => f.toLowerCase());
-  
-  // Hospital capacity checks
+  const apiKey = process.env.GEMINI_API_KEY;
+
   const icuAvailable = hospitalResources?.beds?.icuAvailable ?? 0;
   const ventsAvailable = hospitalResources?.equipment?.ventilators?.available ?? 0;
   const oNegPrbcAvailable = hospitalResources?.bloodStock?.units?.['O-']?.prbc;
 
-  let code = "CODE RED (Life-Threatening)";
+  const prompt = `You are an expert ATLS (Advanced Trauma Life Support) Chief Medical Officer at a Tertiary Hospital in Khyber Pakhtunkhwa.
+Analyze this incoming Rescue 1122 emergency trauma alert and generate the immediate trauma bay resuscitation checklist and risk warnings.
+
+INCOMING EMERGENCY:
+- Patient: ${alert.patientName || 'Emergency Patient'}
+- Emergency Condition: ${alert.emergencyType}
+- Location: ${alert.location || 'In transit'}
+- Required Facilities Requested: ${(alert.requiredFacilities || []).join(', ') || 'Emergency Trauma Bay'}
+- Travel ETA: ${alert.etaMinutes || 15} mins
+
+HOSPITAL LIVE CAPACITY:
+- Available ICU Beds: ${icuAvailable}
+- Operational Ventilators: ${ventsAvailable}
+- Blood Stock: O-Negative PRBC: ${oNegPrbcAvailable ?? 'Available'} units
+
+Return valid JSON with:
+{
+  "code": "CODE RED (Life-Threatening Polytrauma)" | "CODE RED (Cardiac Arrest)" | "CODE AMBER (Emergency Intake)",
+  "primaryRisk": "Concise summary of primary life threats (e.g. Airway Obstruction & Exsanguination)",
+  "etaUrgency": "CRITICAL IMMEDIATE ARRIVAL" | "PREPARATORY WINDOW",
+  "bayChecklist": ["4-5 prioritized ATLS clinical actions for emergency staff before ambulance arrives"],
+  "bedNotice": "Clear statement of hospital bed & blood bank readiness"
+}`;
+
+  if (apiKey) {
+    try {
+      const cascadeResult = await callGeminiCascade(prompt, TraumaAdviceSchema, apiKey);
+      return {
+        ...cascadeResult.data,
+        aiModel: cascadeResult.modelUsed
+      };
+    } catch (err) {
+      console.warn("Gemini Trauma Advice cascade failed, using deterministic clinical rules:", err.message);
+    }
+  }
+
+  const type = ((alert.emergencyType || "") + " " + (alert.vitals || "")).toLowerCase();
+  
+  let code = "CODE RED (Life-Threatening Polytrauma)";
   let primaryRisk = "Hypovolemic Shock & Airway Compromise";
   let bayChecklist = [];
 
-  // 1. Resuscitation Bay & Primary Team Activation
+  // Resuscitation Bay & Primary Team Activation
   if (type.includes("cardiac") || type.includes("arrest")) {
     code = "CODE RED (Cardiac Arrest in Transit)";
     primaryRisk = "Refractory Ventricular Arrhythmia / Sudden Collapse";
@@ -211,94 +330,34 @@ export async function generateEmergencyTraumaAIAdvice({ alert, hospitalResources
     code = "CODE RED (Severe Inhalation & Burn)";
     primaryRisk = "Rapid Airway Edema, Severe Hypovolemia & Inhalation Injury";
     bayChecklist.push("Prepare Burn ICU / sterile resuscitation bay with warmed ambient environment");
-    bayChecklist.push("Immediate fiberoptic bronchoscopy & endotracheal intubation cart ready");
-    bayChecklist.push("Warm Hartmann's fluid infusion lines established (Parkland formula protocol ready)");
-    bayChecklist.push("Notify Plastic Surgery & Burns On-Duty Specialist for urgent escharotomy assessment");
+    bayChecklist.push("Have difficult airway trolley & fiberoptic intubation ready at bedside");
+    bayChecklist.push("Initiate Parkland Formula calculation and prepare warmed Lactated Ringer's IV bags");
+  } else if (type.includes("neuro") || type.includes("head") || type.includes("brain") || type.includes("unconscious")) {
+    code = "CODE RED (Severe Head Injury / Acute ICP)";
+    primaryRisk = "Impending Brainstem Herniation & Intracranial Hemorrhage";
+    bayChecklist.push("Clear Emergency CT Suite for immediate priority unenhanced head scan");
+    bayChecklist.push("Alert On-Call Neurosurgeon and prepare neuro-resuscitation bay");
+    bayChecklist.push("Prepare 3% Hypertonic Saline and Mannitol 20% infusions stat");
   } else {
-    // Polytrauma / Major Trauma / Hemorrhage
-    code = "CODE RED (Life-Threatening Polytrauma)";
-    primaryRisk = "Hypovolemic Shock & Airway Compromise";
-    bayChecklist.push("Prepare Emergency Trauma Resuscitation Bay 1 (Shock Room)");
-    
-    // Check airway risk: GCS <= 8, BVM, shallow respirations, airway compromise
-    const isAirwayCompromised = type.includes("bvm") || type.includes("gcs 8") || type.includes("gcs 7") || 
-      type.includes("gcs 6") || type.includes("gcs 5") || type.includes("gcs 4") || type.includes("gcs 3") || 
-      type.includes("bag-valve") || type.includes("shallow") || type.includes("stridor") || type.includes("airway");
-    
-    if (isAirwayCompromised) {
-      bayChecklist.push("Airway management & Rapid Sequence Intubation (RSI) kit ready (manual in-line c-spine stabilization)");
-    } else {
-      bayChecklist.push("Prepare high-flow non-rebreather oxygen and video laryngoscope on standby");
-    }
-
-    // Multidisciplinary trauma activation
-    bayChecklist.push("Notify on-duty Trauma Surgeon and Anesthesiologist (Trauma Code Activation)");
+    code = "CODE RED (High-Energy Polytrauma)";
+    primaryRisk = "Massive Exsanguination, Pelvic Fracture, Tension Hemothorax";
+    bayChecklist.push("Activate Massive Transfusion Protocol (MTP) with Blood Bank (4 units PRBC O-Neg, 4 FFP)");
+    bayChecklist.push("Prepare Rapid Infuser, pelvic binder, and chest tube insertion tray (32 Fr)");
+    bayChecklist.push("Alert General Surgery, Orthopedics, and Anesthesia teams for immediate trauma bay response");
   }
 
-  // 2. Blood Bank & Massive Transfusion Protocol (MTP) + TXA
-  // Extract specific requested blood units if provided in facilities (e.g. "3 Units O- PRBC Blood")
-  const bloodFacilityReq = (alert.requiredFacilities || []).find(f => /o[-\+]|prbc|blood/i.test(f));
-  let requestedUnits = 2; // clinical standard emergency release pack
-  let bloodText = "";
-  
-  if (bloodFacilityReq) {
-    const match = bloodFacilityReq.match(/(\d+)\s*(?:units?|u)?/i);
-    if (match) {
-      requestedUnits = parseInt(match[1], 10);
-    }
-    bloodText = `Alert Blood Bank for ${requestedUnits} units O-Negative PRBC uncrossmatched (stat pack per paramedic request)`;
-  } else {
-    bloodText = "Alert Blood Bank for 2 units O-Negative PRBC uncrossmatched (stat emergency pack)";
-  }
-  
-  // Severe hemorrhage / shock detection
-  const isSevereHemorrhage = type.includes("massive blood") || type.includes("bp 80") || type.includes("bp 70") || 
-    type.includes("bp 60") || type.includes("shock") || type.includes("femur") || type.includes("hemorrhage") ||
-    reqFacilities.some(f => f.includes("blood") || f.includes("prbc"));
-
-  if (isSevereHemorrhage && !type.includes("cardiac")) {
-    bayChecklist.push(bloodText);
-    bayChecklist.push("Activate Massive Transfusion Protocol (MTP 1:1:1 PRBC/FFP/Platelets) & prepare IV Tranexamic Acid (TXA 1g stat within 3h of injury)");
-  } else if (!type.includes("cardiac") && !type.includes("burn")) {
-    bayChecklist.push("Alert Blood Bank for 2 units O-Negative PRBC on standby & ready rapid blood warmer");
-  }
-
-  // 3. Specialist Team Alerts tailored to injuries and required facilities
-  const hasOrthoInjury = reqFacilities.some(f => f.includes("orthopedic") || f.includes("fracture")) || 
-    type.includes("femur") || type.includes("fracture") || type.includes("compound");
-  if (hasOrthoInjury) {
-    bayChecklist.push("Alert On-Call Orthopedic Team for open fracture stabilization / urgent washout");
-    bayChecklist.push("Prepare femur traction splint, commercial tourniquet & sterile pressure dressing pack");
-  }
-
-  const hasOTReq = reqFacilities.some(f => f.includes("theatre") || f.includes("operation") || f.includes("ot"));
-  if (hasOTReq) {
-    bayChecklist.push("Reserve Trauma Operation Theatre (Emergency OT) & alert surgical scrub team");
-  }
-
-  const hasNeuroInjury = reqFacilities.some(f => f.includes("neuro")) || type.includes("head injury") || type.includes("subdural");
-  if (hasNeuroInjury) {
-    bayChecklist.push("Alert On-Call Neurosurgeon & clear Trauma CT suite for urgent brain scan");
-  }
-
-  // 4. Ventilator & ICU notification
-  const hasVentReq = reqFacilities.some(f => f.includes("ventilator")) || type.includes("bag-valve") || type.includes("shallow");
-  if (hasVentReq && !type.includes("cardiac") && !type.includes("burn")) {
-    bayChecklist.push("Ready mechanical ventilator with trauma settings (lung-protective mode)");
-  }
-
-  // Build resource notice with blood inventory if available
-  let bedNotice = `Hospital has ${icuAvailable} ICU beds and ${ventsAvailable} ventilators available.`;
-  if (oNegPrbcAvailable !== undefined) {
-    bedNotice += ` Blood Bank: ${oNegPrbcAvailable} units O-Negative PRBC currently in stock.`;
+  // Bed and ventilator readiness check
+  let bedNotice = "Trauma Bay 1 ready. General and ICU standby confirmed.";
+  if (icuAvailable === 0) {
+    bedNotice = "CRITICAL CAPACITY ALERT: 0 ICU beds currently open. Patient can be stabilized in Emergency Trauma Bay, but secondary transfer or OT holding will be required.";
   }
 
   return {
     code,
     primaryRisk,
-    etaUrgency: (alert.etaMinutes <= 10) ? "CRITICAL IMMEDIATE ARRIVAL" : "PREPARATORY WINDOW",
+    etaUrgency: (alert.etaMinutes || 10) <= 8 ? "CRITICAL IMMEDIATE ARRIVAL" : "PREPARATORY WINDOW",
     bayChecklist,
-    bedNotice
+    bedNotice,
+    aiModel: "ATLS Trauma Advisory Protocol (Deterministic Fallback)"
   };
 }
-

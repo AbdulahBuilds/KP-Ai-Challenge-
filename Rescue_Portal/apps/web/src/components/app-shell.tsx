@@ -25,7 +25,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50">
         <div className="flex items-center gap-3 text-sm font-medium text-slate-600">
-          <ShieldCheck className="h-5 w-5 text-primary" /> Loading secure session…
+          <ShieldCheck className="h-5 w-5 text-primary" /> Loading Rescue Portal…
         </div>
       </div>
     );

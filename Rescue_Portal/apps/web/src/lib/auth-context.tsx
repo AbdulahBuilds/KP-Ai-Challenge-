@@ -9,7 +9,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { api, refreshAccessToken, setAccessToken } from './api';
+import { api, getAccessToken, setAccessToken } from './api';
 import type { AuthResponse, AuthUser } from './types';
 
 interface AuthContextValue {
@@ -28,11 +28,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let active = true;
-    refreshAccessToken()
-      .then((session) => {
-        if (active && session) setUser(session.user);
+    if (!getAccessToken()) {
+      setLoading(false);
+      return () => {
+        active = false;
+      };
+    }
+    api<AuthUser>('/auth/me')
+      .then((profile) => {
+        if (active) setUser(profile);
       })
-      .catch(() => undefined)
+      .catch(() => {
+        setAccessToken(null);
+        if (active) setUser(null);
+      })
       .finally(() => {
         if (active) setLoading(false);
       });
@@ -53,8 +62,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (email: string, password: string) => {
     const session = await api<AuthResponse>('/auth/login', {
       method: 'POST',
-      auth: false,
-      retryOnUnauthorized: false,
       body: JSON.stringify({ email, password }),
     });
     setAccessToken(session.accessToken);
@@ -62,14 +69,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
-    try {
-      await api('/auth/logout', { method: 'POST', body: '{}' });
-    } catch {
-      // The local session is cleared even if the API is unreachable.
-    } finally {
-      setAccessToken(null);
-      setUser(null);
-    }
+    setAccessToken(null);
+    setUser(null);
   }, []);
 
   const refreshUser = useCallback(async () => {

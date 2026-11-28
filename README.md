@@ -49,7 +49,10 @@ npm run dev:hospital
 # 🚑 2. Run Rescue 1122 Portal only (API on 4000 + Web on 3001)
 npm run dev:rescue
 
-# ⚡ 3. Run Both Portals Concurrently Side-by-Side
+# 🏥 3. Run BHU Portal only (Port 3002)
+npm run dev:bhu
+
+# ⚡ 4. Run All Portals Concurrently Side-by-Side
 npm run dev:all
 ```
 
@@ -58,6 +61,8 @@ npm run dev:all
 | **Hospital Portal** | [http://localhost:3000](http://localhost:3000) | Bed tracking, AI referral triage & Trauma bay alerts |
 | **Rescue Web** | [http://localhost:3001](http://localhost:3001) | Rescue 1122 dispatcher & ambulance CAD dashboard |
 | **Rescue API** | [http://localhost:4000/api/v1](http://localhost:4000/api/v1) | Backend API & Swagger docs at `/api/docs` |
+
+The Hospital Portal is also the unified entry point: [http://localhost:3000/rescue](http://localhost:3000/rescue) proxies the Rescue web app, [http://localhost:3000/api/v1](http://localhost:3000/api/v1) proxies the Rescue API, and [http://localhost:3000/bhu](http://localhost:3000/bhu) proxies the BHU Portal. Run `npm run dev:all` to start all portals together.
 
 ---
 

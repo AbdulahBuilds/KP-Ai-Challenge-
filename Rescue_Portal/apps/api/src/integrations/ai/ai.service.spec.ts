@@ -3,8 +3,8 @@ import { AiService } from './ai.service';
 describe('AiService.rankHospitals', () => {
   it('does not allow external AI to put a farther eligible hospital first', async () => {
     const candidates = [
-      { hospitalExternalId: 'near', hospitalName: 'Nearby Hospital', eligibility: 'ELIGIBLE', score: 90, etaMinutes: 10, distanceKm: 5 },
-      { hospitalExternalId: 'far', hospitalName: 'Far Hospital', eligibility: 'ELIGIBLE', score: 60, etaMinutes: 35, distanceKm: 25 },
+      { hospitalExternalId: 'near', hospitalName: 'Nearby Hospital', eligibility: 'ELIGIBLE', score: 30, etaMinutes: 30, distanceKm: 5 },
+      { hospitalExternalId: 'far', hospitalName: 'Far Hospital', eligibility: 'ELIGIBLE', score: 100, etaMinutes: 5, distanceKm: 25 },
     ];
     const service = new AiService(
       {

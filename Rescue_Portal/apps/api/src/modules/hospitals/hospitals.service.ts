@@ -24,9 +24,11 @@ import { HOSPITAL_PROVIDER } from '../../integrations/hospital/hospital.provider
 import {
   HospitalIntegrationError,
   type ExternalHospitalRequestStatus,
+  type HospitalAvailability,
   type HospitalEmergencyRequestInput,
   type HospitalEmergencyRequestResult,
   type HospitalProvider,
+  type HospitalSummary,
 } from '../../integrations/hospital/hospital.types';
 import type {
   CreateHospitalRequestDto,
@@ -41,6 +43,8 @@ const NOTICE_MOCK =
   'Demo data: hospital information and alert responses are simulated (not real hospital availability).';
 const NOTICE_LIVE =
   'Hospital data is supplied by the Hospital Portal. Availability can change quickly.';
+const NOTICE_CACHED =
+  'The Hospital Portal is temporarily unavailable. Showing the last known hospital data; confirm availability directly before dispatch.';
 
 const STATUS_EVENTS: Partial<Record<ExternalHospitalRequestStatus, CaseEventType>> = {
   ACKNOWLEDGED: 'HOSPITAL_NOTIFIED',
@@ -98,7 +102,8 @@ export class HospitalsService {
   async search(user: AuthUser, query: HospitalSearchQueryDto) {
     this.orgId(user);
     const radiusKm = query.radiusKm ?? 25;
-    let results;
+    let results: HospitalSummary[];
+    let usedCachedData = false;
     try {
       results = await this.provider.searchHospitals({
         latitude: query.latitude,
@@ -107,7 +112,9 @@ export class HospitalsService {
         limit: query.limit ?? 20,
       });
     } catch (error) {
-      this.handleProviderError(error);
+      this.logger.warn(`Hospital Portal search unavailable, using cached directory: ${(error as Error).message}`);
+      results = await this.cachedHospitals(query.latitude, query.longitude, radiusKm, query.limit ?? 20);
+      usedCachedData = true;
     }
     const nearbyResults = results
       .map((hospital) => ({
@@ -162,8 +169,12 @@ export class HospitalsService {
         ...hospital,
         distanceKm: Math.round(hospital.distanceKm * 10) / 10,
       })),
-      meta: { count: nearbyResults.length, radiusKm, searchedAt: now.toISOString() },
-      integration: { adapter: this.provider.name, isMock: this.provider.isMock, notice: this.notice },
+      meta: { count: nearbyResults.length, radiusKm, searchedAt: now.toISOString(), usedCachedData },
+      integration: {
+        adapter: this.provider.name,
+        isMock: this.provider.isMock,
+        notice: usedCachedData ? NOTICE_CACHED : this.notice,
+      },
     };
   }
 
@@ -241,27 +252,32 @@ export class HospitalsService {
 
   async capabilities(user: AuthUser, externalHospitalId: string) {
     this.orgId(user);
-    let availability;
+    let availability: HospitalAvailability;
+    let usedCachedData = false;
     try {
       availability = await this.provider.getCapabilities(externalHospitalId);
     } catch (error) {
-      this.handleProviderError(error);
+      this.logger.warn(`Hospital Portal capabilities unavailable for ${externalHospitalId}, using cached snapshot: ${(error as Error).message}`);
+      availability = await this.cachedAvailability(externalHospitalId);
+      usedCachedData = true;
     }
     const freshness = assessFreshness(availability.observedAt, availability.expiresAt, this.maxAgeSeconds());
-    const snapshot = await this.prisma.hospitalAvailabilitySnapshot.create({
-      data: {
-        hospitalExternalId: availability.hospitalExternalId,
-        hospitalName: availability.hospitalName,
-        capabilities: availability.capabilities as unknown as Prisma.InputJsonValue,
-        sourceResponseId: availability.sourceResponseId,
-        observedAt: availability.observedAt,
-        expiresAt: availability.expiresAt,
-        freshness: freshness.status,
-        isMock: availability.isMock,
-        dataSource: availability.isMock ? 'MOCK' : 'LIVE',
-        raw: availability.raw as Prisma.InputJsonValue | undefined,
-      },
-    });
+    const snapshot = usedCachedData
+      ? null
+      : await this.prisma.hospitalAvailabilitySnapshot.create({
+          data: {
+            hospitalExternalId: availability.hospitalExternalId,
+            hospitalName: availability.hospitalName,
+            capabilities: availability.capabilities as unknown as Prisma.InputJsonValue,
+            sourceResponseId: availability.sourceResponseId,
+            observedAt: availability.observedAt,
+            expiresAt: availability.expiresAt,
+            freshness: freshness.status,
+            isMock: availability.isMock,
+            dataSource: availability.isMock ? 'MOCK' : 'LIVE',
+            raw: availability.raw as Prisma.InputJsonValue | undefined,
+          },
+        });
     return {
       hospitalExternalId: availability.hospitalExternalId,
       hospitalName: availability.hospitalName,
@@ -270,10 +286,10 @@ export class HospitalsService {
       observedAt: availability.observedAt,
       expiresAt: availability.expiresAt,
       sourceResponseId: availability.sourceResponseId,
-      snapshotId: snapshot.id,
+      snapshotId: snapshot?.id ?? null,
       isMock: availability.isMock,
       dataSource: availability.dataSource,
-      notice: availability.isMock ? NOTICE_MOCK : NOTICE_LIVE,
+      notice: usedCachedData ? NOTICE_CACHED : availability.isMock ? NOTICE_MOCK : NOTICE_LIVE,
     };
   }
 
@@ -772,6 +788,67 @@ export class HospitalsService {
         } as Prisma.InputJsonValue,
       },
     });
+  }
+
+  private async cachedHospitals(
+    latitude: number,
+    longitude: number,
+    radiusKm: number,
+    limit: number,
+  ): Promise<HospitalSummary[]> {
+    const records = await this.prisma.hospitalDirectoryCache.findMany();
+    return records
+      .map((record) => ({
+        externalId: record.externalHospitalId,
+        name: record.name,
+        address: record.address,
+        city: record.city,
+        latitude: record.latitude,
+        longitude: record.longitude,
+        phone: record.phone,
+        services: (record.services ?? []) as string[],
+        isMock: record.isMock,
+        dataSource: record.dataSource as 'MOCK' | 'LIVE',
+      }))
+      .filter((hospital) => {
+        const distance = haversineDistanceKm(
+          { latitude, longitude },
+          { latitude: hospital.latitude, longitude: hospital.longitude },
+        );
+        return Number.isFinite(distance) && distance <= radiusKm;
+      })
+      .sort((a, b) => {
+        const distanceA = haversineDistanceKm({ latitude, longitude }, { latitude: a.latitude, longitude: a.longitude });
+        const distanceB = haversineDistanceKm({ latitude, longitude }, { latitude: b.latitude, longitude: b.longitude });
+        return distanceA - distanceB;
+      })
+      .slice(0, limit);
+  }
+
+  private async cachedAvailability(externalHospitalId: string): Promise<HospitalAvailability> {
+    const snapshot = await this.prisma.hospitalAvailabilitySnapshot.findFirst({
+      where: { hospitalExternalId: externalHospitalId },
+      orderBy: { observedAt: 'desc' },
+    });
+    if (!snapshot) {
+      throw new BadGatewayException(
+        `Hospital Portal is unavailable and no cached capability data exists for ${externalHospitalId}.`,
+      );
+    }
+    const hospital = await this.prisma.hospitalDirectoryCache.findUnique({
+      where: { externalHospitalId },
+    });
+    return {
+      hospitalExternalId: snapshot.hospitalExternalId,
+      hospitalName: snapshot.hospitalName || hospital?.name || externalHospitalId,
+      capabilities: (snapshot.capabilities ?? []) as unknown as HospitalAvailability['capabilities'],
+      sourceResponseId: snapshot.sourceResponseId,
+      observedAt: snapshot.observedAt,
+      expiresAt: snapshot.expiresAt,
+      isMock: snapshot.isMock,
+      dataSource: snapshot.dataSource as 'MOCK' | 'LIVE',
+      raw: snapshot.raw ?? undefined,
+    };
   }
 
   private handleProviderError(error: unknown): never {

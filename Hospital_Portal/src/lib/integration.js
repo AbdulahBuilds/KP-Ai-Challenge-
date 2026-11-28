@@ -3,6 +3,13 @@ import { initialHospitals } from './seedData.js';
 export const CAPABILITY_CATALOG_VERSION = '2026-11-13.1';
 export const CAPABILITY_VALIDITY_HOURS = 24;
 
+// The JSON file store is seeded demo data, not a live hospital feed. When no
+// MongoDB source is configured, re-stamp the demo snapshot on read so Rescue
+// recommendations remain usable. Set DEMO_CAPABILITY_REFRESH=false to require
+// real update timestamps from the data source.
+export const DEMO_CAPABILITY_REFRESH =
+  process.env.DEMO_CAPABILITY_REFRESH !== 'false' && !process.env.MONGODB_URI;
+
 const AVAILABLE_WORDS = new Set(['available', 'operational', 'working', 'functional']);
 const UNAVAILABLE_WORDS = new Set(['unavailable', 'out of service', 'closed', 'temporarily unavailable']);
 
@@ -173,7 +180,7 @@ export function toCapabilitySnapshot(hospital, now = new Date()) {
     capabilities.push(capability(code, units > 0 ? 'AVAILABLE' : 'UNAVAILABLE', units, `${group} units`));
   }
 
-  const observedAt = resourceTimestamp(resources) ?? now;
+  const observedAt = DEMO_CAPABILITY_REFRESH ? now : (resourceTimestamp(resources) ?? now);
   const expiresAt = new Date(observedAt.getTime() + CAPABILITY_VALIDITY_HOURS * 60 * 60 * 1000);
   return {
     hospitalExternalId: hospital.id,
@@ -182,6 +189,7 @@ export function toCapabilitySnapshot(hospital, now = new Date()) {
     snapshotId: `${hospital.id}:capabilities:${observedAt.toISOString()}`,
     observedAt: observedAt.toISOString(),
     expiresAt: expiresAt.toISOString(),
+    ...(DEMO_CAPABILITY_REFRESH ? { freshnessMode: 'DEMO_SNAPSHOT_REFRESHED_ON_READ' } : {}),
     capabilities,
   };
 }

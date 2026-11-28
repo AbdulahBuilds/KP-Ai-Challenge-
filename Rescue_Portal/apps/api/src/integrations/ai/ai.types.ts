@@ -19,6 +19,44 @@ export interface IncidentSummaryResult {
   disclaimer: string;
 }
 
+export type IncidentNarrativeLanguage = 'en' | 'ur' | 'ps';
+
+export type DetectedEmergencyType =
+  | 'MEDICAL'
+  | 'TRAUMA'
+  | 'CARDIAC'
+  | 'RESPIRATORY'
+  | 'OBSTETRIC'
+  | 'PEDIATRIC'
+  | 'NEONATAL'
+  | 'PSYCHIATRIC'
+  | 'BURNS'
+  | 'MASS_CASUALTY'
+  | 'OTHER';
+
+export type DetectedSeverity = 'CRITICAL' | 'HIGH' | 'MODERATE' | 'LOW' | 'UNKNOWN';
+export type DetectedGender = 'MALE' | 'FEMALE' | 'OTHER' | 'UNKNOWN';
+
+export interface StructuredIncidentNarrativeResult {
+  normalizedTranscript: string;
+  symptoms: string;
+  injuries: string;
+  suspectedCondition: string;
+  treatmentProvided: string;
+  notes: string;
+  resourceNeeds: string;
+  patientName: string | null;
+  age: number | null;
+  gender: DetectedGender | null;
+  emergencyType: DetectedEmergencyType | null;
+  severity: DetectedSeverity | null;
+  address: string | null;
+  capabilities: string[];
+  source: 'heuristic' | 'http';
+  isAiAssisted: boolean;
+  disclaimer: string;
+}
+
 export interface RecommendationExplanationInput {
   hospitalName: string;
   eligibility: string;
@@ -75,6 +113,10 @@ export interface AiProvider {
   readonly name: string;
   suggestCapabilities(text: string): Promise<CapabilitySuggestionResult>;
   summarizeIncident(text: string): Promise<IncidentSummaryResult>;
+  structureIncidentNarrative(
+    transcript: string,
+    language?: IncidentNarrativeLanguage,
+  ): Promise<StructuredIncidentNarrativeResult>;
   explainRecommendation(input: RecommendationExplanationInput): Promise<RecommendationExplanationResult>;
   rankHospitals(input: HospitalRankingInput): Promise<HospitalRankingResult>;
 }

@@ -7,6 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { AiService } from '../../integrations/ai/ai.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { mongoNullish } from '../../common/utils/prisma-mongo.util';
 import { AuditService } from '../audit/audit.service';
@@ -15,7 +16,13 @@ import { RecommendationsService } from '../recommendations/recommendations.servi
 import { resolvePagination } from '../../common/utils/pagination.util';
 import { generateCaseNumber } from '../../common/utils/crypto.util';
 import type { AuthUser } from '../../common/types/auth-user';
-import type { CreateIncidentDto, PatientDetailsDto, UpdateIncidentDto } from './dto/incident.dto';
+import type { StructuredIncidentNarrativeResult } from '../../integrations/ai/ai.types';
+import type {
+  CreateIncidentDto,
+  PatientDetailsDto,
+  StructureIncidentNarrativeDto,
+  UpdateIncidentDto,
+} from './dto/incident.dto';
 
 const incidentDetailInclude = {
   patient: true,
@@ -49,6 +56,7 @@ export class IncidentsService {
     private readonly audit: AuditService,
     private readonly recommendations: RecommendationsService,
     private readonly hospitals: HospitalsService,
+    private readonly ai: AiService,
   ) {}
 
   private orgId(user: AuthUser): string {
@@ -69,6 +77,15 @@ export class IncidentsService {
   async create(user: AuthUser, dto: CreateIncidentDto) {
     const organizationId = this.orgId(user);
     const now = new Date();
+    const narrative = dto.narrative?.trim() || null;
+    const extracted = narrative
+      ? await this.ai.structureIncidentNarrative(narrative, dto.language)
+      : null;
+    const emergencyType = dto.emergencyType ?? extracted?.emergencyType ?? 'MEDICAL';
+    const severity = dto.severity ?? extracted?.severity ?? 'UNKNOWN';
+    const requiredCapabilities = dto.requiredCapabilities ?? extracted?.capabilities ?? [];
+    const address = dto.address ?? extracted?.address ?? undefined;
+    const patient = this.mergePatientDetails(dto.patient, extracted, narrative);
 
     for (let attempt = 0; attempt < 6; attempt += 1) {
       const caseNumber = generateCaseNumber(now);
@@ -80,18 +97,18 @@ export class IncidentsService {
               organizationId,
               createdById: user.id,
               status: 'REGISTERED',
-              severity: dto.severity,
-              emergencyType: dto.emergencyType,
-              title: this.buildTitle(dto, caseNumber),
-              summary: dto.patient?.notes ?? null,
+              severity,
+              emergencyType,
+              title: this.buildTitle(dto, caseNumber, emergencyType, extracted?.suspectedCondition),
+              summary: patient?.notes ?? null,
               latitude: dto.latitude,
               longitude: dto.longitude,
-              address: dto.address ?? null,
+              address: address ?? null,
               locationCapturedAt: now,
-              requiredCapabilities: dto.requiredCapabilities ?? [],
+              requiredCapabilities,
               receivedAt: now,
               registeredAt: now,
-              ...(dto.patient ? { patient: { create: this.patientCreateData(dto.patient) } } : {}),
+              ...(patient ? { patient: { create: this.patientCreateData(patient) } } : {}),
               events: {
                 create: {
                   type: 'CASE_REGISTERED',
@@ -103,7 +120,7 @@ export class IncidentsService {
             },
           });
           return incident;
-        });
+        }, { maxWait: 5000, timeout: 15000 });
 
         await this.audit.record({
           action: 'INCIDENT_CREATED',
@@ -115,6 +132,7 @@ export class IncidentsService {
             caseNumber: created.caseNumber,
             severity: created.severity,
             emergencyType: created.emergencyType,
+            intakeSource: narrative ? 'narrative_ai' : 'structured',
           },
         });
         const recommendation = await this.recommendations.generateAfterSubmission(user, created.id);
@@ -206,6 +224,11 @@ export class IncidentsService {
 
   async get(user: AuthUser, id: string) {
     return this.findOwned(user, id);
+  }
+
+  async structureNarrative(user: AuthUser, dto: StructureIncidentNarrativeDto) {
+    this.orgId(user);
+    return this.ai.structureIncidentNarrative(dto.transcript, dto.language);
   }
 
   async update(user: AuthUser, id: string, dto: UpdateIncidentDto) {
@@ -322,10 +345,46 @@ export class IncidentsService {
     }
   }
 
-  private buildTitle(dto: CreateIncidentDto, caseNumber: string): string {
+  private buildTitle(
+    dto: CreateIncidentDto,
+    caseNumber: string,
+    emergencyType: string,
+    suspectedCondition?: string | null,
+  ): string {
     if (dto.title?.trim()) return dto.title.trim();
-    const type = dto.emergencyType.replace(/_/g, ' ').toLowerCase();
+    const type = emergencyType.replace(/_/g, ' ').toLowerCase();
+    if (suspectedCondition?.trim()) {
+      return `${caseNumber} - ${suspectedCondition.trim().slice(0, 90)}`;
+    }
     return `${caseNumber} - ${type} emergency`;
+  }
+
+  private mergePatientDetails(
+    provided: PatientDetailsDto | undefined,
+    extracted: StructuredIncidentNarrativeResult | null,
+    narrative: string | null,
+  ): PatientDetailsDto | undefined {
+    if (!provided && !extracted) return undefined;
+    const narrativeNotes = narrative
+      ? [
+          `Patient narrative: ${narrative}`,
+          extracted?.resourceNeeds ? `AI-detected required resources: ${extracted.resourceNeeds}` : '',
+          extracted?.notes ? `Other reported details: ${extracted.notes}` : '',
+          provided?.notes ? `Additional notes: ${provided.notes}` : '',
+        ]
+          .filter(Boolean)
+          .join('\n')
+      : provided?.notes;
+    return {
+      patientName: provided?.patientName ?? extracted?.patientName ?? undefined,
+      age: provided?.age ?? extracted?.age ?? undefined,
+      gender: provided?.gender ?? extracted?.gender ?? undefined,
+      symptoms: provided?.symptoms ?? extracted?.symptoms ?? undefined,
+      injuries: provided?.injuries ?? extracted?.injuries ?? undefined,
+      suspectedCondition: provided?.suspectedCondition ?? extracted?.suspectedCondition ?? undefined,
+      treatmentProvided: provided?.treatmentProvided ?? extracted?.treatmentProvided ?? undefined,
+      notes: narrativeNotes || undefined,
+    };
   }
 
   private patientCreateData(dto: PatientDetailsDto): Prisma.IncidentPatientDetailsCreateWithoutIncidentInput {
@@ -335,6 +394,7 @@ export class IncidentsService {
       ...(dto.gender ? { gender: dto.gender } : {}),
       unidentified: !dto.patientName?.trim(),
       suspectedCondition: dto.suspectedCondition?.trim() || null,
+      treatmentProvided: dto.treatmentProvided?.trim() || null,
       symptoms: dto.symptoms?.trim() || null,
       injuries: dto.injuries?.trim() || null,
       notes: dto.notes?.trim() || null,
@@ -350,6 +410,7 @@ export class IncidentsService {
     if (dto.age !== undefined) data.age = dto.age ?? null;
     if (dto.gender) data.gender = dto.gender;
     if (dto.suspectedCondition !== undefined) data.suspectedCondition = dto.suspectedCondition?.trim() || null;
+    if (dto.treatmentProvided !== undefined) data.treatmentProvided = dto.treatmentProvided?.trim() || null;
     if (dto.symptoms !== undefined) data.symptoms = dto.symptoms?.trim() || null;
     if (dto.injuries !== undefined) data.injuries = dto.injuries?.trim() || null;
     if (dto.notes !== undefined) data.notes = dto.notes?.trim() || null;

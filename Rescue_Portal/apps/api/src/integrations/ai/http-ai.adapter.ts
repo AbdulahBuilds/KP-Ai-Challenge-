@@ -6,8 +6,10 @@ import type {
   HospitalRankingInput,
   HospitalRankingResult,
   IncidentSummaryResult,
+  IncidentNarrativeLanguage,
   RecommendationExplanationInput,
   RecommendationExplanationResult,
+  StructuredIncidentNarrativeResult,
 } from './ai.types';
 import { AI_DISCLAIMER } from './ai.types';
 
@@ -51,6 +53,24 @@ export class HttpAiAdapter implements AiProvider {
       '/summarize-incident',
       { text },
     );
+    return { ...result, source: 'http', isAiAssisted: true, disclaimer: AI_DISCLAIMER };
+  }
+
+  async structureIncidentNarrative(
+    transcript: string,
+    language: IncidentNarrativeLanguage = 'en',
+  ): Promise<StructuredIncidentNarrativeResult> {
+    const result = await this.request<
+      Omit<StructuredIncidentNarrativeResult, 'source' | 'isAiAssisted' | 'disclaimer'>
+    >('/structure-incident', {
+      transcript,
+      language,
+      instructions:
+        'Return a faithful transcript and organize only explicitly stated facts into the supplied fields. ' +
+        'Do not diagnose, infer missing facts, or omit details. Also extract patientName, age, gender, emergencyType, severity, address, ' +
+        'and capability codes (from the Rescue Portal capability catalogue) when they are explicitly stated. ' +
+        'Keep English in English, render Urdu in Pakistani Roman Urdu, and keep Pashto in Pashto script. Put unclassified facts in notes.',
+    });
     return { ...result, source: 'http', isAiAssisted: true, disclaimer: AI_DISCLAIMER };
   }
 

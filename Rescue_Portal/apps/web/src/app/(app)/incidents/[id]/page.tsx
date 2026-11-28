@@ -34,8 +34,7 @@ import {
   relativeTime,
   titleCase,
 } from '@/lib/utils';
-import { Badge, Card, EmptyState, ErrorBox, Field, Loading, MockNotice, Notice, PageHeader } from '@/components/ui';
-import { VoiceInput } from '@/components/voice-input';
+import { Badge, Card, EmptyState, ErrorBox, Loading, MockNotice, Notice, PageHeader } from '@/components/ui';
 
 type SearchResult = { data: Hospital[]; meta?: { searchedAt?: string }; integration?: { isMock?: boolean; notice?: string } };
 type RequestsResult = { data: HospitalRequest[]; notice?: string };
@@ -64,17 +63,10 @@ export default function IncidentDetailPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
 
-  const [radiusKm, setRadiusKm] = useState('25');
-  const [editingLocation, setEditingLocation] = useState(false);
-  const [locationDraft, setLocationDraft] = useState({ latitude: '', longitude: '' });
   const [locatingCase, setLocatingCase] = useState(false);
-  const [savingLocation, setSavingLocation] = useState(false);
-  const [searchRequirements, setSearchRequirements] = useState('');
   const [searchData, setSearchData] = useState<SearchResult | null>(null);
   const [searching, setSearching] = useState(false);
   const [selecting, setSelecting] = useState<RecommendationSummaryRow | Hospital | null>(null);
-  const [selectReason, setSelectReason] = useState('');
-  const [etaDrafts, setEtaDrafts] = useState<Record<string, string>>({});
 
   const incidentQuery = useQuery({
     queryKey: ['incident', id],
@@ -94,6 +86,9 @@ export default function IncidentDetailPage() {
   const incident = incidentQuery.data;
   const recommendation = recommendationQuery.error instanceof ApiError && recommendationQuery.error.status === 404 ? null : recommendationQuery.data;
   const results = useMemo(() => recommendation?.results ?? [], [recommendation]);
+  const recommendedResult = results.find(
+    (result) => result.hospitalExternalId === recommendation?.suggestedHospitalId && result.eligibility === 'ELIGIBLE',
+  ) ?? null;
   const requiredCaps = useMemo(
     () => (incident?.requiredCapabilities?.length ? incident.requiredCapabilities : (recommendation?.requiredCapabilities ?? [])),
     [incident, recommendation],
@@ -112,42 +107,23 @@ export default function IncidentDetailPage() {
     queryClient.invalidateQueries({ queryKey: ['incidents'] });
   }
 
-  async function captureCaseLocation() {
+  async function refreshCaseLocation() {
     setLocatingCase(true);
     try {
       const position = await getCurrentLocation();
-      setLocationDraft({
-        latitude: position.latitude.toFixed(6),
-        longitude: position.longitude.toFixed(6),
-      });
-      toast.success('Location captured. Save it to update this case.');
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Unable to retrieve location');
-    } finally {
-      setLocatingCase(false);
-    }
-  }
-
-  async function saveLocation() {
-    const latitude = Number(locationDraft.latitude);
-    const longitude = Number(locationDraft.longitude);
-    if (!isValidCoordinate(latitude, longitude)) {
-      toast.error('Enter a valid latitude (-90 to 90) and longitude (-180 to 180).');
-      return;
-    }
-    setSavingLocation(true);
-    try {
+      if (!isValidCoordinate(position.latitude, position.longitude)) {
+        throw new Error('The browser returned an invalid location. Try again.');
+      }
       await api(`/incidents/${id}`, {
         method: 'PATCH',
-        body: JSON.stringify({ latitude, longitude }),
+        body: JSON.stringify({ latitude: position.latitude, longitude: position.longitude }),
       });
-      setEditingLocation(false);
-      toast.success('Patient location updated. Generate new recommendations to use it.');
+      toast.success('Patient location updated from this device. Regenerate recommendations to use it.');
       invalidate();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Unable to update location');
     } finally {
-      setSavingLocation(false);
+      setLocatingCase(false);
     }
   }
 
@@ -156,7 +132,7 @@ export default function IncidentDetailPage() {
     setSearching(true);
     try {
       const data = await api<SearchResult>(
-        `/hospitals/search${queryString({ latitude: incident.latitude, longitude: incident.longitude, radiusKm: Number(radiusKm) || 25, limit: 20 })}`,
+        `/hospitals/search${queryString({ latitude: incident.latitude, longitude: incident.longitude, radiusKm: 25, limit: 20 })}`,
       );
       setSearchData(data);
     } catch (e) {
@@ -169,7 +145,7 @@ export default function IncidentDetailPage() {
   const generateMutation = useMutation({
     mutationFn: () => api<Recommendation>(`/incidents/${id}/recommendations`, {
       method: 'POST',
-      body: JSON.stringify({ searchRadiusKm: Number(radiusKm) || 25, notes: searchRequirements.trim() || undefined }),
+      body: JSON.stringify({}),
     }),
     onSuccess: () => {
       toast.success('Recommendations generated');
@@ -184,7 +160,6 @@ export default function IncidentDetailPage() {
     onSuccess: (res) => {
       toast.success(res?.destination?.changed ? 'Destination changed' : 'Destination selected');
       setSelecting(null);
-      setSelectReason('');
       invalidate();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -215,16 +190,6 @@ export default function IncidentDetailPage() {
       toast.success('Alert status refreshed');
       invalidate();
     },
-  });
-
-  const etaMutation = useMutation({
-    mutationFn: ({ requestId, etaMinutes }: { requestId: string; etaMinutes: number }) =>
-      api(`/hospital-requests/${requestId}/eta`, { method: 'POST', body: JSON.stringify({ etaMinutes }) }),
-    onSuccess: () => {
-      toast.success('ETA sent to hospital portal');
-      invalidate();
-    },
-    onError: (e: Error) => toast.error(e.message),
   });
 
   if (incidentQuery.isLoading) return <Loading label="Loading emergency case…" />;
@@ -275,39 +240,23 @@ export default function IncidentDetailPage() {
               <div className="rounded-lg border bg-slate-50 p-3 text-sm">
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Location</p>
-                  {canUpdate && !editingLocation ? (
-                    <button type="button" className="btn-ghost h-6 px-2 text-[11px]" onClick={() => { setLocationDraft({ latitude: String(incident.latitude), longitude: String(incident.longitude) }); setEditingLocation(true); }}>
-                      Update
+                  {canUpdate ? (
+                    <button type="button" className="btn-ghost h-6 px-2 text-[11px]" onClick={() => { void refreshCaseLocation(); }} disabled={locatingCase}>
+                      {locatingCase ? <Loader2 className="mr-1 inline h-3 w-3 animate-spin" /> : <MapPin className="mr-1 inline h-3 w-3" />}
+                      {locatingCase ? 'Updating…' : 'Refresh from device'}
                     </button>
                   ) : null}
                 </div>
-                <p className="mt-1 font-medium text-slate-800"><MapPin className="mr-1 inline h-3.5 w-3.5" />{incident.address || 'Address not provided'}</p>
+                <p className="mt-1 font-medium text-slate-800"><MapPin className="mr-1 inline h-3.5 w-3.5" />{incident.address || 'Coordinates captured from device'}</p>
                 <p className="mt-1 font-mono text-xs text-muted-foreground">{incident.latitude.toFixed(6)}, {incident.longitude.toFixed(6)}</p>
-                {editingLocation ? (
-                  <div className="mt-3 space-y-2 border-t pt-3">
-                    <div className="grid grid-cols-2 gap-2">
-                      <input aria-label="Latitude" className="input-base h-8 px-2 font-mono text-xs" type="number" step="any" min={-90} max={90} value={locationDraft.latitude} onChange={(e) => setLocationDraft((current) => ({ ...current, latitude: e.target.value }))} />
-                      <input aria-label="Longitude" className="input-base h-8 px-2 font-mono text-xs" type="number" step="any" min={-180} max={180} value={locationDraft.longitude} onChange={(e) => setLocationDraft((current) => ({ ...current, longitude: e.target.value }))} />
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button type="button" className="btn-secondary h-7 px-2 text-[11px]" onClick={captureCaseLocation} disabled={locatingCase}>
-                        {locatingCase ? <Loader2 className="mr-1 inline h-3 w-3 animate-spin" /> : <MapPin className="mr-1 inline h-3 w-3" />}
-                        Use my location
-                      </button>
-                      <button type="button" className="btn-primary h-7 px-2 text-[11px]" onClick={saveLocation} disabled={savingLocation}>
-                        {savingLocation ? 'Saving…' : 'Save location'}
-                      </button>
-                      <button type="button" className="btn-ghost h-7 px-2 text-[11px]" onClick={() => setEditingLocation(false)}>Cancel</button>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground">Saved coordinates are used for the next hospital search and recommendation.</p>
-                  </div>
-                ) : null}
               </div>
             </div>
             <dl className="mt-4 space-y-2 text-sm">
-              {incident.patient?.symptoms ? <div><dt className="text-xs font-semibold text-muted-foreground">Symptoms / injury details</dt><dd className="whitespace-pre-wrap">{incident.patient.symptoms}</dd></div> : null}
+              {incident.patient?.suspectedCondition ? <div><dt className="text-xs font-semibold text-muted-foreground">Patient condition</dt><dd className="whitespace-pre-wrap">{incident.patient.suspectedCondition}</dd></div> : null}
+              {incident.patient?.symptoms ? <div><dt className="text-xs font-semibold text-muted-foreground">Symptoms</dt><dd className="whitespace-pre-wrap">{incident.patient.symptoms}</dd></div> : null}
               {incident.patient?.injuries ? <div><dt className="text-xs font-semibold text-muted-foreground">Injury details</dt><dd className="whitespace-pre-wrap">{incident.patient.injuries}</dd></div> : null}
-              {incident.patient?.notes ? <div><dt className="text-xs font-semibold text-muted-foreground">Additional notes</dt><dd className="whitespace-pre-wrap">{incident.patient.notes}</dd></div> : null}
+              {incident.patient?.treatmentProvided ? <div><dt className="text-xs font-semibold text-muted-foreground">Treatment already provided</dt><dd className="whitespace-pre-wrap">{incident.patient.treatmentProvided}</dd></div> : null}
+              {incident.patient?.notes ? <div><dt className="text-xs font-semibold text-muted-foreground">Reported details / AI extraction</dt><dd className="whitespace-pre-wrap">{incident.patient.notes}</dd></div> : null}
             </dl>
             <div className="mt-4">
               <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Required medical facilities / equipment</p>
@@ -324,25 +273,11 @@ export default function IncidentDetailPage() {
               <h2 className="flex items-center gap-2 font-semibold text-slate-900"><Search className="h-4 w-4 text-primary" /> Nearby hospital search</h2>
               <p className="mt-1 text-xs text-muted-foreground">Search uses the patient&apos;s current location and configured hospital data source. Review results with actual capability and travel information before deciding.</p>
             </div>
-            <div className="mb-4">
-              <VoiceInput
-                label="Hospital search requirements"
-                value={searchRequirements}
-                onChange={setSearchRequirements}
-                rows={2}
-                placeholder="Type or dictate special requirements (e.g. trauma center, pediatric ICU, burn unit, ventilator availability)..."
-                hint="Use voice or type to capture requirements; they refine the next recommendation. Hospital suitability is still determined from live hospital capability data."
-              />
-            </div>
-            <div className="mb-4 flex flex-wrap items-end gap-3">
-              <div className="w-40">
-                <Field label="Search radius (km)" htmlFor="radius-km">
-                  <input id="radius-km" className="input-base h-9" type="number" min={1} max={200} value={radiusKm} onChange={(e) => setRadiusKm(e.target.value)} />
-                </Field>
-              </div>
+            <div className="mb-4 flex flex-wrap items-center gap-3">
               <button type="button" className="btn-secondary h-9" onClick={doSearch} disabled={searching || !hasPermission(user, PERMISSIONS.HOSPITAL_READ)}>
                 {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />} Search nearby hospitals
               </button>
+              <p className="text-xs text-muted-foreground">Searches a 25 km radius using the patient&apos;s captured location.</p>
             </div>
             {searchData?.integration?.isMock ? <div className="mb-3"><MockNotice>{searchData.integration.notice}</MockNotice></div> : null}
             {searchData ? (
@@ -361,7 +296,7 @@ export default function IncidentDetailPage() {
                           <td><Badge value={h.isMock ? 'MOCK' : 'LIVE'} /></td>
                           <td className="text-right">
                             {canSelect ? (
-                              <button type="button" className="btn-secondary h-7 px-2 text-[11px]" onClick={() => { setSelecting(h); setSelectReason(''); }}>Select</button>
+                              <button type="button" className="btn-secondary h-7 px-2 text-[11px]" onClick={() => { setSelecting(h); }}>Select</button>
                             ) : null}
                           </td>
                         </tr>
@@ -369,15 +304,15 @@ export default function IncidentDetailPage() {
                     </tbody>
                   </table>
                 </div>
-              ) : <EmptyState title="No hospitals found" description="Try increasing the search radius or check hospital data configuration." />
+              ) : <EmptyState title="No hospitals found" description="Check the patient location and Hospital Portal data source." />
             ) : <p className="text-sm text-muted-foreground">Run a search to find suitable nearby hospitals for this case.</p>}
           </Card>
 
           <Card className="p-5">
             <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
               <div>
-                <h2 className="flex items-center gap-2 font-semibold text-slate-900"><Sparkles className="h-4 w-4 text-primary" /> AI recommendations & comparison</h2>
-                <p className="mt-1 text-xs text-muted-foreground">Decision support only. Recommendations do not diagnose or select a hospital.</p>
+                <h2 className="flex items-center gap-2 font-semibold text-slate-900"><Sparkles className="h-4 w-4 text-primary" /> Hospital recommendation</h2>
+                <p className="mt-1 text-xs text-muted-foreground">One primary recommendation is selected by confirmed capability fit and nearest distance. Other candidates remain available for review.</p>
               </div>
               {canRecommend ? (
                 <button type="button" className="btn-primary h-9" onClick={() => generateMutation.mutate()} disabled={generateMutation.isPending}>
@@ -391,7 +326,7 @@ export default function IncidentDetailPage() {
             ) : null}
 
             {!recommendation && !generateMutation.isPending ? (
-              <EmptyState title="No recommendations generated yet" description="Generate recommendations to compare hospitals by suitability, facilities, distance, and ETA." />
+              <EmptyState title="No recommendation generated yet" description="Generate one primary recommendation based on patient needs, confirmed hospital facilities, and distance." />
             ) : null}
 
             {recommendation ? (
@@ -399,7 +334,7 @@ export default function IncidentDetailPage() {
                 {recommendation.aiSuggestion ? (
                   <div className="rounded-lg border border-primary/30 bg-accent/40 p-3">
                     <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-primary">
-                      <Sparkles className="h-3.5 w-3.5" /> AI suggested destination (decision support only)
+                      <Sparkles className="h-3.5 w-3.5" /> Single recommended hospital
                     </p>
                     <p className="mt-1 text-sm text-slate-800">{recommendation.aiSuggestion.summary}</p>
                     {recommendation.aiSuggestion.rationale ? (
@@ -416,76 +351,91 @@ export default function IncidentDetailPage() {
                   <div className="rounded-lg bg-rose-50 p-3 text-center ring-1 ring-rose-100"><p className="text-xl font-bold text-rose-700">{recommendation.ineligibleCount}</p><p className="text-[10px] font-bold uppercase text-rose-700">Ineligible</p></div>
                 </div>
 
-                <div className="space-y-3">
-                  {results.map((row) => (
-                    <div key={row.hospitalExternalId} className={cn('rounded-lg border p-4', row.eligibility === 'ELIGIBLE' ? 'border-emerald-200' : row.eligibility === 'INELIGIBLE' ? 'border-rose-200 bg-rose-50/20' : 'border-amber-200')}>
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                        <div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <p className="font-semibold text-slate-900">{row.hospitalName}</p>
-                            <Badge value={row.eligibility} />
-                            <Badge value={row.freshness.status} />
-                            {row.isMock ? <Badge value="MOCK" label="Demo" /> : null}
-                          </div>
-                          <p className="mt-1 text-xs text-muted-foreground">{row.address || 'Address unavailable'}</p>
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            Distance: <span className="font-medium text-slate-700">{formatDistanceKm(row.distanceKm, row.travelEstimated)}</span>
-                            {' · '}ETA: <span className="font-medium text-slate-700">{formatEtaMinutes(row.etaMinutes, row.travelEstimated)}</span>
-                            {' · '}Score {row.score}
-                          </p>
-                          {row.travelEstimated ? <p className="mt-0.5 text-[11px] text-amber-700">Estimated travel values (not live traffic/routing) unless provider states otherwise.</p> : null}
+                {recommendedResult ? (
+                  <div className="rounded-lg border-2 border-emerald-300 bg-emerald-50/30 p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-semibold text-slate-900">{recommendedResult.hospitalName}</p>
+                          <Badge value="RECOMMENDED" />
+                          <Badge value={recommendedResult.freshness.status} />
+                          {recommendedResult.isMock ? <Badge value="MOCK" label="Demo" /> : null}
                         </div>
-                        {canSelect ? (
-                          <button type="button" className={row.eligibility === 'ELIGIBLE' ? 'btn-primary h-8 px-3 text-xs' : 'btn-secondary h-8 px-3 text-xs'} onClick={() => { setSelecting(row); setSelectReason(''); }}>
-                            Select destination
-                          </button>
-                        ) : null}
+                        <p className="mt-1 text-xs text-muted-foreground">{recommendedResult.address || 'Address unavailable'}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Distance: <span className="font-medium text-slate-700">{formatDistanceKm(recommendedResult.distanceKm, recommendedResult.travelEstimated)}</span>
+                          {' · '}ETA: <span className="font-medium text-slate-700">{formatEtaMinutes(recommendedResult.etaMinutes, recommendedResult.travelEstimated)}</span>
+                        </p>
                       </div>
-                      <div className="mt-3 rounded-md border bg-white p-3">
-                        <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Why recommended ({row.explanationMode === 'ai' ? 'AI explanation' : 'Rule-based explanation'})</p>
-                        <p className="text-sm text-slate-700">{row.explanation || row.reasons.join(' ') || 'No explanation available.'}</p>
-                      </div>
-                      {row.warnings?.length ? <ul className="mt-2 space-y-0.5 text-[11px] text-amber-800">{row.warnings.map((w) => <li key={w}>• {w}</li>)}</ul> : null}
-                      <p className="mt-2 text-[10px] uppercase tracking-wide text-slate-400">Data: {row.dataSource}{row.isMock ? ' (demo)' : ''} · {row.travelEstimated ? 'estimated travel' : 'routing provider'} · observed {row.observedAt ? formatDate(row.observedAt) : 'unknown'}</p>
+                      {canSelect ? (
+                        <button type="button" className="btn-primary h-8 px-3 text-xs" onClick={() => { setSelecting(recommendedResult); }}>
+                          Select recommended destination
+                        </button>
+                      ) : null}
                     </div>
-                  ))}
-                </div>
-
-                {comparisonCaps.length > 0 && results.length > 0 ? (
-                  <div>
-                    <h3 className="mb-2 text-sm font-semibold text-slate-900">Hospital comparison (facilities, beds, resources)</h3>
-                    <div className="overflow-x-auto rounded-lg border">
-                      <table className="table-base min-w-[640px] text-xs">
-                        <thead>
-                          <tr>
-                            <th>Hospital</th>
-                            {comparisonCaps.map((code) => <th key={code}>{CAPABILITY_LABELS[code] ?? code}</th>)}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {results.map((row) => (
-                            <tr key={`cmp-${row.hospitalExternalId}`}>
-                              <td className="font-medium text-slate-800">
-                                {row.hospitalName}
-                                <div className="mt-0.5 text-[10px] font-normal text-muted-foreground">{formatDistanceKm(row.distanceKm, row.travelEstimated)} · {formatEtaMinutes(row.etaMinutes, row.travelEstimated)}</div>
-                              </td>
-                              {comparisonCaps.map((code) => {
-                                const cap = capabilityFor(row, code);
-                                const status = comparisonStatus(cap, row.freshness.status);
-                                return (
-                                  <td key={code}>
-                                    <Badge value={status} />
-                                    {typeof cap?.quantity === 'number' ? <span className="ml-1 text-[10px] text-muted-foreground">({cap.quantity})</span> : null}
-                                  </td>
-                                );
-                              })}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                    <div className="mt-3 rounded-md border bg-white p-3">
+                      <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Why this hospital was recommended</p>
+                      <p className="text-sm text-slate-700">
+                        {recommendation.aiSuggestion?.rationale || recommendedResult.explanation || recommendedResult.reasons.join(' ') || 'No explanation available.'}
+                      </p>
                     </div>
-                    <p className="mt-2 text-[11px] text-muted-foreground">Statuses: Available, Limited, Unavailable, Unknown, Outdated. Unknown/outdated are not shown as available.</p>
+                    {recommendedResult.warnings?.length ? <ul className="mt-2 space-y-0.5 text-[11px] text-amber-800">{recommendedResult.warnings.map((warning) => <li key={warning}>• {warning}</li>)}</ul> : null}
+                    <p className="mt-2 text-[10px] uppercase tracking-wide text-slate-400">
+                      Data: {recommendedResult.dataSource}{recommendedResult.isMock ? ' (demo)' : ''} · {recommendedResult.travelEstimated ? 'estimated travel' : 'routing provider'} · observed {recommendedResult.observedAt ? formatDate(recommendedResult.observedAt) : 'unknown'}
+                    </p>
                   </div>
+                ) : (
+                  <Notice tone="warning">
+                    No single hospital meets all required capabilities using fresh confirmed data. Do not treat unconfirmed candidates as suitable; contact hospitals and use dispatcher judgment.
+                  </Notice>
+                )}
+
+                {results.length > (recommendedResult ? 1 : 0) ? (
+                  <details className="rounded-lg border p-4">
+                    <summary className="cursor-pointer text-sm font-semibold text-slate-800">
+                      Review other evaluated hospitals ({results.length - (recommendedResult ? 1 : 0)})
+                    </summary>
+                    <p className="mb-3 mt-2 text-xs text-muted-foreground">These are alternatives, not additional recommendations. Unknown or stale capabilities must not be assumed available.</p>
+                    <div className="space-y-2">
+                      {results.filter((row) => row.hospitalExternalId !== recommendedResult?.hospitalExternalId).map((row) => (
+                        <div key={row.hospitalExternalId} className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3">
+                          <div>
+                            <p className="font-semibold text-slate-800">{row.hospitalName} <Badge value={row.eligibility} /></p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {formatDistanceKm(row.distanceKm, row.travelEstimated)} · {formatEtaMinutes(row.etaMinutes, row.travelEstimated)}
+                            </p>
+                            <p className="mt-1 text-xs text-slate-600">{row.reasons.join(' ')}</p>
+                          </div>
+                          {canSelect ? (
+                            <button type="button" className="btn-secondary h-8 px-3 text-xs" onClick={() => { setSelecting(row); }}>
+                              Select alternative
+                            </button>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                    {comparisonCaps.length > 0 ? (
+                      <div className="mt-4">
+                        <h3 className="mb-2 text-sm font-semibold text-slate-900">Capability comparison</h3>
+                        <div className="overflow-x-auto rounded-lg border">
+                          <table className="table-base min-w-[640px] text-xs">
+                            <thead><tr><th>Hospital</th>{comparisonCaps.map((code) => <th key={code}>{CAPABILITY_LABELS[code] ?? code}</th>)}</tr></thead>
+                            <tbody>
+                              {results.map((row) => (
+                                <tr key={`cmp-${row.hospitalExternalId}`}>
+                                  <td className="font-medium text-slate-800">{row.hospitalName}</td>
+                                  {comparisonCaps.map((code) => {
+                                    const cap = capabilityFor(row, code);
+                                    return <td key={code}><Badge value={comparisonStatus(cap, row.freshness.status)} />{typeof cap?.quantity === 'number' ? <span className="ml-1 text-[10px] text-muted-foreground">({cap.quantity})</span> : null}</td>;
+                                  })}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    ) : null}
+                  </details>
                 ) : null}
               </div>
             ) : null}
@@ -553,28 +503,6 @@ export default function IncidentDetailPage() {
                         </div>
                       </div>
                       {req.responseMessage ? <p className="mt-2 text-xs text-slate-700">{req.responseMessage}</p> : null}
-                      {canAlert && req.sentAt ? (
-                        <div className="mt-2 flex items-center gap-2">
-                          <input
-                            type="number"
-                            min={0}
-                            max={1440}
-                            className="input-base h-8 w-24 py-1 text-xs"
-                            placeholder="ETA (min)"
-                            value={etaDrafts[req.id] ?? ''}
-                            onChange={(event) => setEtaDrafts((current) => ({ ...current, [req.id]: event.target.value }))}
-                          />
-                          <button
-                            type="button"
-                            className="btn-secondary h-8 px-3 text-xs"
-                            disabled={etaMutation.isPending || !etaDrafts[req.id]}
-                            onClick={() => etaMutation.mutate({ requestId: req.id, etaMinutes: Number(etaDrafts[req.id]) })}
-                          >
-                            {etaMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                            Send ETA
-                          </button>
-                        </div>
-                      ) : null}
                       <p className="mt-1 text-[10px] uppercase tracking-wide text-slate-400">
                         {req.isMock ? 'Demo/simulated alert' : 'Live alert'} · raw {req.status}{req.etaMinutes != null ? ` · ETA ${req.etaMinutes} min` : ''}
                       </p>
@@ -626,21 +554,23 @@ export default function IncidentDetailPage() {
             {'isMock' in selecting && selecting.isMock ? (
               <MockNotice>This hospital entry is based on demo/simulated data.</MockNotice>
             ) : null}
-            <p className="text-xs text-slate-700">Selection records the chosen destination and who made the decision. It does <strong>not</strong> send a pre-arrival alert or imply hospital acceptance.</p>
-            <Field label={changingDestination ? 'Reason for change' : 'Reason (recommended; required for changes)'} required={changingDestination}>
-              <textarea className="input-base min-h-20 py-2" value={selectReason} onChange={(e) => setSelectReason(e.target.value)} placeholder={changingDestination ? 'Why is the destination being changed?' : 'Optional reason for this selection'} />
-            </Field>
+            <p className="text-xs text-slate-700">Selection records the chosen destination and who made the decision. The automatic alert was already sent when the case was submitted; use the alert list below to resend if needed.</p>
             <div className="flex justify-end gap-2">
               <button type="button" className="btn-secondary" onClick={() => setSelecting(null)}>Cancel</button>
               <button
                 type="button"
                 className="btn-primary"
-                disabled={selectMutation.isPending || (changingDestination && !selectReason.trim())}
+                disabled={selectMutation.isPending}
                 onClick={() => {
                   const isRec = 'eligibility' in selecting;
                   const hospitalExternalId = isRec ? (selecting as RecommendationSummaryRow).hospitalExternalId : (selecting as Hospital).externalId;
                   const hospitalName = isRec ? (selecting as RecommendationSummaryRow).hospitalName : (selecting as Hospital).name;
-                  selectMutation.mutate({ hospitalExternalId, hospitalName, recommendationId: recommendation?.id, reason: selectReason.trim() || undefined });
+                  selectMutation.mutate({
+                    hospitalExternalId,
+                    hospitalName,
+                    recommendationId: recommendation?.id,
+                    reason: changingDestination ? 'Destination changed by dispatcher from the case page.' : undefined,
+                  });
                 }}
               >
                 {selectMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Building2 className="h-4 w-4" />}

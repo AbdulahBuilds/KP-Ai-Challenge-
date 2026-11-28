@@ -51,7 +51,7 @@ export default function LoginPage() {
 
         <h1 className="text-2xl font-bold tracking-tight text-slate-900">Sign in</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Sign in to manage emergency cases, hospital selection, and pre-arrival alerts.
+          Sign in to manage emergency cases, hospital selection, and pre-arrival alerts. Your session stays active for 7 days.
         </p>
 
         <form onSubmit={onSubmit} className="mt-6 space-y-4">
@@ -64,7 +64,7 @@ export default function LoginPage() {
               required
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              placeholder="Email address"
+              placeholder="hakimullah@rescue.com"
             />
           </Field>
           <Field label="Password" required>

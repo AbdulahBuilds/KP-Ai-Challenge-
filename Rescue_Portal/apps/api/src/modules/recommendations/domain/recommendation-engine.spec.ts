@@ -186,6 +186,23 @@ describe('recommendation engine ranking', () => {
     expect(result[2].hospitalExternalId).toBe('stale');
   });
 
+  it('orders eligible hospitals by distance before weighted score or ETA', () => {
+    const near = candidate({
+      hospitalExternalId: 'near',
+      hospitalName: 'Near but slow',
+      route: { distanceKm: 1, durationMinutes: 300, source: 'test', estimated: false },
+    });
+    const far = candidate({
+      hospitalExternalId: 'far',
+      hospitalName: 'Far but fast',
+      route: { distanceKm: 10, durationMinutes: 1, source: 'test', estimated: false },
+    });
+
+    const result = evaluateCandidates([far, near], baseInput);
+    expect(result[0].hospitalExternalId).toBe('near');
+    expect(result[0].score).toBeLessThan(result[1].score);
+  });
+
   it('uses route estimates and labels estimated travel', () => {
     const withRoute = candidate({
       route: {

@@ -1,4 +1,7 @@
 /** @type {import('next').NextConfig} */
+const RESCUE_WEB_URL = process.env.RESCUE_WEB_URL || 'http://localhost:3001';
+const RESCUE_API_URL = process.env.RESCUE_API_URL || 'http://localhost:4000';
+
 const nextConfig = {
   reactStrictMode: true,
   async rewrites() {
@@ -24,11 +27,17 @@ const nextConfig = {
       // 3. Reverse proxy to Rescue 1122 Web (Port 3001)
       {
         source: '/rescue',
-        destination: 'http://localhost:3001/rescue',
+        destination: `${RESCUE_WEB_URL}/rescue`,
       },
       {
         source: '/rescue/:path*',
-        destination: 'http://localhost:3001/rescue/:path*',
+        destination: `${RESCUE_WEB_URL}/rescue/:path*`,
+      },
+      // 4. Rescue API through the unified portal so the browser can call
+      //    /api/v1 from any portal without CORS or port mismatches.
+      {
+        source: '/api/v1/:path*',
+        destination: `${RESCUE_API_URL}/api/v1/:path*`,
       },
     ];
   },

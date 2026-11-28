@@ -34,7 +34,6 @@ export interface AuthUser {
 
 export interface AuthResponse {
   accessToken: string;
-  refreshToken: string;
   user: AuthUser;
 }
 
@@ -60,6 +59,7 @@ export interface Patient {
   unidentified?: boolean;
   contactPhone?: string | null;
   suspectedCondition?: string | null;
+  treatmentProvided?: string | null;
   symptoms?: string | null;
   injuries?: string | null;
   medicalHistory?: string | null;

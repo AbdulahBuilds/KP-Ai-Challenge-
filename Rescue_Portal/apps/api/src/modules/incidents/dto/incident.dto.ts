@@ -58,6 +58,12 @@ export class PatientDetailsDto {
   @MaxLength(500)
   suspectedCondition?: string;
 
+  @ApiPropertyOptional({ description: 'Treatment already provided by the rescue team' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  treatmentProvided?: string;
+
   @ApiPropertyOptional({ description: 'Additional emergency notes' })
   @IsOptional()
   @IsString()
@@ -66,13 +72,34 @@ export class PatientDetailsDto {
 }
 
 export class CreateIncidentDto {
-  @ApiProperty({ enum: EmergencyType })
-  @IsEnum(EmergencyType)
-  emergencyType!: EmergencyType;
+  @ApiPropertyOptional({
+    description:
+      'One free-text patient narrative. The backend AI extracts emergency type, severity, patient details, required facilities and equipment from it.',
+    maxLength: 8000,
+  })
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(8000)
+  narrative?: string;
 
-  @ApiProperty({ enum: Severity, description: 'Emergency severity/priority' })
+  @ApiPropertyOptional({
+    enum: ['en', 'ur', 'ps'],
+    description: 'Spoken language hint. Omit it to auto-detect from the narrative.',
+  })
+  @IsOptional()
+  @IsIn(['en', 'ur', 'ps'])
+  language?: 'en' | 'ur' | 'ps';
+
+  @ApiPropertyOptional({ enum: EmergencyType, description: 'Optional override; normally detected from the narrative by AI.' })
+  @IsOptional()
+  @IsEnum(EmergencyType)
+  emergencyType?: EmergencyType;
+
+  @ApiPropertyOptional({ enum: Severity, description: 'Optional override; normally detected from the narrative by AI.' })
+  @IsOptional()
   @IsEnum(Severity)
-  severity!: Severity;
+  severity?: Severity;
 
   @ApiProperty({ example: 31.5204, description: "Patient's current latitude" })
   @Type(() => Number)
@@ -108,6 +135,19 @@ export class CreateIncidentDto {
   @MinLength(3)
   @MaxLength(160)
   title?: string;
+}
+
+export class StructureIncidentNarrativeDto {
+  @ApiProperty({ maxLength: 8000 })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(8000)
+  transcript!: string;
+
+  @ApiPropertyOptional({ enum: ['en', 'ur', 'ps'], description: 'Optional; omitted values are auto-detected.' })
+  @IsOptional()
+  @IsIn(['en', 'ur', 'ps'])
+  language?: 'en' | 'ur' | 'ps';
 }
 
 export class UpdateIncidentDto extends PartialType(CreateIncidentDto) {}

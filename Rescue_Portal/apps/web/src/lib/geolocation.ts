@@ -16,12 +16,12 @@ export function isLocationSecureContext(): boolean {
 export function locationErrorMessage(error: GeolocationPositionError): string {
   if (error.code === 1) {
     return isLocationSecureContext()
-      ? 'Location permission was denied. Allow location access in your browser or enter coordinates manually.'
-      : 'Location permission was denied. Location access needs HTTPS (or localhost), or enter coordinates manually.';
+      ? 'Location permission was denied. Allow location access in your browser, then try again.'
+      : 'Location permission was denied. Location access needs HTTPS (or localhost), then try again.';
   }
-  if (error.code === 2) return 'Location information is unavailable. Try again or enter coordinates manually.';
-  if (error.code === 3) return 'Location request timed out. Try again or enter coordinates manually.';
-  return 'Unable to retrieve location. Enter coordinates manually.';
+  if (error.code === 2) return 'Location information is unavailable. Try again.';
+  if (error.code === 3) return 'Location request timed out. Try again.';
+  return 'Unable to retrieve location. Check device location services and try again.';
 }
 
 export function isValidCoordinate(latitude: number, longitude: number): boolean {
@@ -38,7 +38,7 @@ export function isValidCoordinate(latitude: number, longitude: number): boolean 
 export function getCurrentLocation(): Promise<CapturedLocation> {
   return new Promise((resolve, reject) => {
     if (typeof navigator === 'undefined' || !navigator.geolocation) {
-      reject(new Error('Geolocation is not available in this browser. Enter coordinates manually.'));
+      reject(new Error('Geolocation is not available in this browser. Use a Chrome/Edge browser on HTTPS or localhost.'));
       return;
     }
 
@@ -48,7 +48,7 @@ export function getCurrentLocation(): Promise<CapturedLocation> {
           const latitude = position.coords.latitude;
           const longitude = position.coords.longitude;
           if (!isValidCoordinate(latitude, longitude)) {
-            reject(new Error('The browser returned invalid coordinates. Enter them manually.'));
+            reject(new Error('The browser returned invalid coordinates. Try again.'));
             return;
           }
           resolve({

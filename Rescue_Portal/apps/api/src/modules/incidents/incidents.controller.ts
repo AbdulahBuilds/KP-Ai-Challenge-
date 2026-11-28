@@ -5,7 +5,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { PERMISSIONS } from '../../common/constants/permissions';
 import type { AuthUser } from '../../common/types/auth-user';
-import { CreateIncidentDto, UpdateIncidentDto } from './dto/incident.dto';
+import { CreateIncidentDto, StructureIncidentNarrativeDto, UpdateIncidentDto } from './dto/incident.dto';
 
 @ApiTags('Emergency Cases')
 @ApiBearerAuth()
@@ -28,6 +28,13 @@ export class IncidentsController {
   @ApiOperation({ summary: 'Create an emergency case' })
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateIncidentDto) {
     return this.incidents.create(user, dto);
+  }
+
+  @Post('structure-narrative')
+  @RequirePermissions(PERMISSIONS.INCIDENT_CREATE)
+  @ApiOperation({ summary: 'Organize a dictated patient narrative into incident fields' })
+  structureNarrative(@CurrentUser() user: AuthUser, @Body() dto: StructureIncidentNarrativeDto) {
+    return this.incidents.structureNarrative(user, dto);
   }
 
   @Get(':id')

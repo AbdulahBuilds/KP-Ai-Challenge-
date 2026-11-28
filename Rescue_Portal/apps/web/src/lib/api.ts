@@ -1,10 +1,21 @@
-import type { AuthResponse } from './types';
-
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? '/api/v1';
 export const WS_URL = process.env.NEXT_PUBLIC_WS_URL ?? 'http://localhost:4000';
 
+const TOKEN_KEY = 'rescue_access_token';
 let accessToken: string | null = null;
-let refreshPromise: Promise<AuthResponse | null> | null = null;
+
+export function setAccessToken(token: string | null): void {
+  accessToken = token;
+  if (typeof window !== 'undefined') {
+    if (token) window.localStorage.setItem(TOKEN_KEY, token);
+    else window.localStorage.removeItem(TOKEN_KEY);
+  }
+}
+
+export function getAccessToken(): string | null {
+  if (!accessToken && typeof window !== 'undefined') accessToken = window.localStorage.getItem(TOKEN_KEY);
+  return accessToken;
+}
 
 export class ApiError extends Error {
   constructor(
@@ -15,14 +26,6 @@ export class ApiError extends Error {
     super(message);
     this.name = 'ApiError';
   }
-}
-
-export function setAccessToken(token: string | null): void {
-  accessToken = token;
-}
-
-export function getAccessToken(): string | null {
-  return accessToken;
 }
 
 function errorMessage(body: unknown, fallback: string): string {
@@ -51,48 +54,14 @@ async function parseBody(response: Response): Promise<unknown> {
   }
 }
 
-export async function refreshAccessToken(): Promise<AuthResponse | null> {
-  if (!refreshPromise) {
-    refreshPromise = (async () => {
-      let response: Response;
-      try {
-        response = await fetch(`${API_URL}/auth/refresh`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: '{}',
-        });
-      } catch {
-        throw new ApiError(`Cannot reach the Rescue Portal API at ${API_URL}. Check that the API is running.`, 0);
-      }
-      if (response.status === 401) return null;
-      if (!response.ok) {
-        const body = await parseBody(response);
-        throw new ApiError(errorMessage(body, `Session refresh failed (${response.status})`), response.status, body);
-      }
-      const data = (await response.json()) as AuthResponse;
-      accessToken = data.accessToken;
-      return data;
-    })().finally(() => {
-      refreshPromise = null;
-    });
-  }
-  return refreshPromise;
-}
-
-interface RequestOptions extends RequestInit {
-  auth?: boolean;
-  retryOnUnauthorized?: boolean;
-}
-
-export async function api<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { auth = true, retryOnUnauthorized = true, ...init } = options;
+export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers ?? {});
   const isFormData = init.body instanceof FormData;
   if (!isFormData && init.body !== undefined && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
-  if (auth && accessToken) headers.set('Authorization', `Bearer ${accessToken}`);
+  const token = getAccessToken();
+  if (token) headers.set('Authorization', `Bearer ${token}`);
 
   let response: Response;
   try {
@@ -106,29 +75,20 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
     throw new ApiError(`Cannot reach the Rescue Portal API at ${API_URL}. Check that the API is running.`, 0);
   }
 
-  if (response.status === 401 && auth && retryOnUnauthorized) {
-    let refreshed: AuthResponse | null = null;
-    try {
-      refreshed = await refreshAccessToken();
-    } catch (refreshError) {
-      if (refreshError instanceof ApiError && refreshError.status >= 500) {
-        throw new ApiError(`Your session could not be refreshed because the Rescue API is unavailable. ${refreshError.message}`, refreshError.status);
-      }
-      throw refreshError instanceof ApiError
-        ? refreshError
-        : new ApiError('Your session could not be refreshed. Please try again.', 0);
-    }
-    if (refreshed) return api<T>(path, { ...options, retryOnUnauthorized: false });
+  if (response.status === 401) {
+    setAccessToken(null);
     if (typeof window !== 'undefined') window.dispatchEvent(new Event('rescue-auth-expired'));
-    throw new ApiError('Your session has expired. Please sign in again.', 401);
   }
 
   if (!response.ok) {
     const body = await parseBody(response);
     const detail = errorMessage(body, `Request failed (${response.status})`);
-    const message = response.status >= 500
-      ? `${detail} — the Rescue API is unavailable or misconfigured. Please try again or contact support.`
-      : detail;
+    const message =
+      response.status === 502
+        ? `${detail} — check that the Hospital Portal is running (npm run dev:hospital).`
+        : response.status >= 500
+          ? `${detail} — the Rescue API is temporarily unavailable. Please try again.`
+          : detail;
     throw new ApiError(message, response.status, body);
   }
 
@@ -147,21 +107,13 @@ export function queryString(params: Record<string, string | number | boolean | u
 
 export async function downloadFile(path: string, filename: string): Promise<void> {
   const headers: Record<string, string> = {};
-  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+  const token = getAccessToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
   let response: Response;
   try {
     response = await fetch(`${API_URL}${path}`, { headers, credentials: 'include' });
   } catch {
     throw new ApiError(`Cannot reach the Rescue Portal API at ${API_URL}. Check that the API is running.`, 0);
-  }
-  if (response.status === 401) {
-    const refreshed = await refreshAccessToken();
-    if (refreshed) {
-      response = await fetch(`${API_URL}${path}`, {
-        headers: { Authorization: `Bearer ${refreshed.accessToken}` },
-        credentials: 'include',
-      });
-    }
   }
   if (!response.ok) {
     const body = await parseBody(response);

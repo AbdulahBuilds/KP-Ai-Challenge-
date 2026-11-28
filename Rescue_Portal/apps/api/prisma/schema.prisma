@@ -536,6 +536,7 @@ model IncidentPatientDetails {
   emergencyContactName  String?
   emergencyContactPhone String?
   suspectedCondition String?
+  treatmentProvided String?
   symptoms         String?
   injuries         String?
   medicalHistory   String?

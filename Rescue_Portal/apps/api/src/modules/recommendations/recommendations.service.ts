@@ -8,7 +8,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { resolvePagination } from '../../common/utils/pagination.util';
-import { CAPABILITY_CODES } from '../../common/constants/capabilities';
+import { CAPABILITY_CODES, capabilityLabel } from '../../common/constants/capabilities';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { HospitalsService } from '../hospitals/hospitals.service';
@@ -59,6 +59,7 @@ export class RecommendationsService {
     const organizationId = this.orgId(user);
     const incident = await this.prisma.incident.findFirst({
       where: { id: incidentId, organizationId },
+      include: { patient: true },
     });
     if (!incident) throw new NotFoundException('Emergency case not found');
     return incident;
@@ -79,9 +80,22 @@ export class RecommendationsService {
     const incident = await this.findIncident(user, incidentId);
     const requiredCapabilities = this.capabilityList(dto.requiredCapabilities, incident.requiredCapabilities);
     const notes = dto.notes?.trim() || null;
-    if (notes) {
-      const suggested = await this.ai.suggestCapabilities(notes);
-      for (const code of suggested.suggestions.filter((item) => item.confidence >= 0.55).map((item) => item.code)) {
+    const clinicalContext = [
+      incident.emergencyType,
+      incident.severity,
+      incident.patient?.suspectedCondition,
+      incident.patient?.symptoms,
+      incident.patient?.injuries,
+      incident.patient?.treatmentProvided,
+      incident.patient?.notes,
+      notes,
+    ].filter((value): value is string => Boolean(value?.trim())).join('\n');
+    if (clinicalContext && requiredCapabilities.length === 0) {
+      const suggested = await this.ai.suggestCapabilities(clinicalContext);
+      for (const code of suggested.suggestions
+        .filter((item) => item.confidence >= 0.65)
+        .slice(0, 3)
+        .map((item) => item.code)) {
         if (CAPABILITY_CODES.has(code) && !requiredCapabilities.includes(code)) requiredCapabilities.push(code);
       }
     }
@@ -236,11 +250,23 @@ export class RecommendationsService {
     const mapsStatus = this.maps.status;
     const dataSource = hospitalIntegration.isMock ? 'MOCK' : 'LIVE';
     const suggested = explained.find((evaluation) => evaluation.hospitalExternalId === ranking.suggestedHospitalId) ?? null;
+    const recommendedCapabilities = suggested?.matchedCapabilities.map(capabilityLabel) ?? [];
+    const recommendationDistance = suggested?.distanceKm === null || suggested?.distanceKm === undefined
+      ? 'distance unavailable'
+      : `${suggested.distanceKm.toFixed(1)} km from the incident`;
+    const recommendationEta = suggested?.etaMinutes === null || suggested?.etaMinutes === undefined
+      ? ''
+      : ` with an estimated ${Math.round(suggested.etaMinutes)} minute travel time`;
+    const rationale = suggested
+      ? `Nearest eligible hospital for this ${incident.emergencyType.toLowerCase()} / ${incident.severity.toLowerCase()} case. Required facilities confirmed available on fresh hospital data: ${recommendedCapabilities.join(', ')}. It is ${recommendationDistance}${recommendationEta}.`
+      : null;
     const aiSuggestion = {
       hospitalExternalId: ranking.suggestedHospitalId,
       hospitalName: suggested?.hospitalName ?? null,
-      summary: ranking.summary,
-      rationale: ranking.suggestedHospitalId ? ranking.rationaleById[ranking.suggestedHospitalId] ?? null : null,
+      summary: suggested
+        ? `One hospital is recommended: ${suggested.hospitalName}, the nearest hospital with all required capabilities confirmed on fresh data.`
+        : 'No single hospital currently meets all required capabilities on fresh hospital data. Review the unconfirmed results and contact hospitals directly.',
+      rationale,
       source: ranking.source,
       mode: ranking.source === 'heuristic' ? 'rule_based' : 'ai',
     };
@@ -301,7 +327,7 @@ export class RecommendationsService {
     if (usedNearestFallback) {
       const nearestDistance = hospitals[0]?.distanceKm;
       warnings.push(
-        `No Hospital Portal data was found within ${searchRadiusKm} km. Recommending the nearest ${hospitals.length} hospital(s) available in the Hospital Portal data${nearestDistance === undefined ? '' : ` (nearest ${nearestDistance.toFixed(1)} km away)`}. Distances and ETAs are estimates; confirm transport feasibility before dispatch.`,
+        `No Hospital Portal data was found within ${searchRadiusKm} km. The nearest ${hospitals.length} hospital candidate(s) are shown for evaluation${nearestDistance === undefined ? '' : ` (nearest ${nearestDistance.toFixed(1)} km away)`}. Distances and ETAs are estimates; confirm transport feasibility before dispatch.`,
       );
     }
     if (noAvailableHospitals) {
@@ -333,7 +359,7 @@ export class RecommendationsService {
       },
       warnings,
       disclaimer:
-        'Decision support only. Recommendations do not diagnose patients and do not automatically select a hospital. Rescue Admin must make the final decision.',
+        'Decision support only. The system recommends at most one eligible hospital based on confirmed capabilities and proximity. A trained dispatcher must verify patient needs and hospital capacity before transport.',
       generatedAt: recommendation.createdAt.toISOString(),
     };
   }

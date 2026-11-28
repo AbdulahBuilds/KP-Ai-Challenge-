@@ -5,7 +5,7 @@ import { haversineDistanceKm } from '../../../common/utils/distance.util';
 import { assessFreshness, type FreshnessResult } from '../../../common/utils/freshness.util';
 import type { HospitalCapability } from '../../../integrations/hospital/hospital.types';
 
-export const RECOMMENDATION_POLICY_VERSION = '2026-11-24.1';
+export const RECOMMENDATION_POLICY_VERSION = '2026-11-25.1';
 
 export interface RecommendationPolicy {
   version: string;
@@ -251,12 +251,14 @@ export function evaluateCandidates(
     .sort((a, b) => {
       const eligibilityDiff = ELIGIBILITY_ORDER[a.eligibility] - ELIGIBILITY_ORDER[b.eligibility];
       if (eligibilityDiff !== 0) return eligibilityDiff;
+      if (a.distanceKm !== null && b.distanceKm !== null && a.distanceKm !== b.distanceKm) {
+        return a.distanceKm - b.distanceKm;
+      }
+      if (a.distanceKm === null && b.distanceKm !== null) return 1;
+      if (a.distanceKm !== null && b.distanceKm === null) return -1;
       if (b.score !== a.score) return b.score - a.score;
       if (a.etaMinutes !== null && b.etaMinutes !== null && a.etaMinutes !== b.etaMinutes) {
         return a.etaMinutes - b.etaMinutes;
-      }
-      if (a.distanceKm !== null && b.distanceKm !== null && a.distanceKm !== b.distanceKm) {
-        return a.distanceKm - b.distanceKm;
       }
       return a.hospitalName.localeCompare(b.hospitalName);
     });

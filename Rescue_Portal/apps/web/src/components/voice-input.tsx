@@ -37,6 +37,8 @@ interface VoiceInputProps {
   required?: boolean;
   language?: string;
   hint?: string;
+  onCaptureComplete?: (value: string) => void;
+  onListeningChange?: (listening: boolean) => void;
 }
 
 const MAX_RESTARTS = 5;
@@ -65,6 +67,8 @@ export function VoiceInput({
   required,
   language = 'en-US',
   hint,
+  onCaptureComplete,
+  onListeningChange,
 }: VoiceInputProps) {
   const inputId = useId();
   const [supported, setSupported] = useState<boolean | null>(null);
@@ -77,7 +81,11 @@ export function VoiceInput({
   const sessionRef = useRef(0);
   const shouldListenRef = useRef(false);
   const restartsRef = useRef(0);
-  const hadFinalRef = useRef(false);
+
+  function updateListening(next: boolean) {
+    setListening(next);
+    onListeningChange?.(next);
+  }
 
   useEffect(() => {
     baseValueRef.current = value;
@@ -117,16 +125,21 @@ export function VoiceInput({
     if (error) return error;
     if (supported === false) return 'Voice input needs a Chromium browser (Chrome or Edge). Please type manually or switch browsers.';
     if (secureContext === false) return 'Voice input requires HTTPS or localhost. Open this app on localhost/HTTPS or type manually.';
-    if (listening) return interim ? `Listening… "${interim}"` : 'Listening… review the transcribed text before submitting.';
-    return 'Use the microphone to dictate, then review/edit manually. Voice input never auto-submits.';
+    if (listening) return interim ? `Listening… "${interim}"` : 'Listening… dictate the full patient story, then press Stop.';
+    return 'Voice-to-text places the exact recognized words in the box above. Review and correct them before submitting.';
   }, [error, interim, listening, secureContext, supported]);
 
-  function stop() {
+  function stop(complete = true) {
+    const capturedValue = appendTranscript(baseValueRef.current, interim);
+    if (complete) {
+      if (capturedValue !== baseValueRef.current) onChange(capturedValue);
+      onCaptureComplete?.(capturedValue.trim());
+    }
     shouldListenRef.current = false;
     sessionRef.current += 1;
     const recognition = recognitionRef.current;
     recognitionRef.current = null;
-    setListening(false);
+    updateListening(false);
     setInterim('');
     try {
       recognition?.abort();
@@ -146,11 +159,10 @@ export function VoiceInput({
       return;
     }
 
-    stop();
+    stop(false);
     setError('');
     setInterim('');
     shouldListenRef.current = true;
-    hadFinalRef.current = false;
     sessionRef.current += 1;
     const session = sessionRef.current;
     restartsRef.current = 0;
@@ -158,13 +170,13 @@ export function VoiceInput({
 
     try {
       const recognition = new Ctor();
-      recognition.continuous = false;
+      recognition.continuous = true;
       recognition.interimResults = true;
       recognition.lang = language;
 
       recognition.onstart = () => {
         if (sessionRef.current !== session) return;
-        setListening(true);
+        updateListening(true);
       };
 
       recognition.onresult = (event) => {
@@ -182,8 +194,7 @@ export function VoiceInput({
         if (finalTranscript) {
           const next = appendTranscript(baseValueRef.current, finalTranscript);
           baseValueRef.current = next;
-          hadFinalRef.current = true;
-          shouldListenRef.current = false;
+          restartsRef.current = 0;
           onChange(next);
           setInterim('');
         } else {
@@ -206,19 +217,12 @@ export function VoiceInput({
         }
         shouldListenRef.current = false;
         recognitionRef.current = null;
-        setListening(false);
+        updateListening(false);
         setInterim('');
       };
 
       recognition.onend = () => {
         if (sessionRef.current !== session) return;
-        if (hadFinalRef.current) {
-          shouldListenRef.current = false;
-          recognitionRef.current = null;
-          setListening(false);
-          setInterim('');
-          return;
-        }
         if (shouldListenRef.current && restartsRef.current < MAX_RESTARTS) {
           restartsRef.current += 1;
           window.setTimeout(() => {
@@ -228,15 +232,16 @@ export function VoiceInput({
             } catch {
               shouldListenRef.current = false;
               recognitionRef.current = null;
-              setListening(false);
+              updateListening(false);
               setError('Voice input stopped unexpectedly. Please type manually.');
             }
           }, 250);
           return;
         }
-        setListening(false);
-        setInterim('');
+        shouldListenRef.current = false;
         recognitionRef.current = null;
+        updateListening(false);
+        setInterim('');
       };
 
       recognitionRef.current = recognition;
@@ -244,7 +249,7 @@ export function VoiceInput({
     } catch {
       shouldListenRef.current = false;
       recognitionRef.current = null;
-      setListening(false);
+      updateListening(false);
       setError('Unable to start voice input. Please type manually.');
     }
   }
@@ -258,7 +263,7 @@ export function VoiceInput({
         </label>
         <button
           type="button"
-          onClick={listening ? stop : start}
+          onClick={() => (listening ? stop() : start())}
           disabled={supported !== true || secureContext !== true}
           className={cn(
             'inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50',

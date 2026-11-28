@@ -56,6 +56,7 @@ POST   /organizations/:id/approve|reject|suspend|reactivate
 ```
 GET    /incidents
 POST   /incidents
+POST   /incidents/structure-narrative
 GET    /incidents/:id
 PATCH  /incidents/:id
 PATCH  /incidents/:id/status
@@ -71,6 +72,10 @@ POST   /dispatch/incidents/:id/release
 POST   /patient-integration/incidents/:incidentId/summary
 POST   /patient-integration/incidents/:incidentId/status-updates
 ```
+
+`POST /incidents` accepts a single `narrative` free-text field plus device-captured `latitude` and `longitude`. On create, the backend AI extracts `emergencyType`, `severity`, patient name/age/gender, symptoms, injuries, condition, treatment, notes, address, and required capability codes. The frontend sends no clinical forms; all structured inputs are derived server-side. Explicit fields remain accepted as overrides for machine integrations.
+
+`POST /incidents/structure-narrative` accepts `{ "transcript": "...", "language": "en|ur|ps" }` (`language` is optional and auto-detected when omitted) and returns the normalized transcript, clinical fields, extracted patient metadata, detected priority/type, and suggested capability codes. Urdu output uses Pakistani Roman Urdu; Pashto output remains Pashto script. All fields are advisory and must be reviewed.
 
 ### Hospitals and recommendations
 
@@ -137,6 +142,11 @@ Exact DTO fields, enums and response schemas are documented in Swagger.
 - CSV values beginning with `=`, `+`, `-`, `@` are neutralized to prevent spreadsheet formula injection.
 - Hospital acceptance excludes pending/more-information requests from the denominator.
 
-## Mock hospital provider route
+## Unified portal routing
 
-`/api/v1/mock/hospital-api/v1/*` simulates the external Hospital Portal. It is unavailable when the live hospital adapter is active. If `MOCK_HOSPITAL_API_KEY` is set, callers must send `x-api-key`.
+The Rescue web app is served at `/rescue`. Visiting `http://localhost:3001/` redirects to `/rescue`, so direct port-3001 use does not need the prefix. Browser API calls use `/api/v1`, which is proxied to the Rescue API by:
+
+- the Rescue web rewrite (`basePath: false`) when opened directly on port 3001, and
+- the Hospital Portal rewrite when opened through the unified portal on port 3000.
+
+Both proxies forward the `Authorization` header, so JWT auth works unchanged. Configure `RESCUE_API_URL` and `RESCUE_WEB_URL` in the Hospital Portal environment for non-local deployments.
